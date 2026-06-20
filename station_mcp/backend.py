@@ -8,9 +8,11 @@
 """
 from __future__ import annotations
 
+import asyncio
 import io
 import math
 import os
+import struct
 import sys
 import logging
 from dataclasses import dataclass
@@ -118,48 +120,156 @@ class MockBackend(StationBackend):
         return True
 
 
+# ----------------------------- ST3215 register parsing -----------------------------
+# Present-position (2B LE) and present-current (2B LE) live in the raw motor state dump.
+_POS_ADDR, _CUR_ADDR = 0x38, 0x45
+_MAX_STEP, _SIGN_BIT = 4095, 0x8000
+
+
+def _norm_pos(raw: int) -> int:
+    """Normalize a raw encoder reading (handles the sign bit), per the NormaCore examples."""
+    if raw & _SIGN_BIT:
+        return (_MAX_STEP + 1 - (raw & _MAX_STEP)) & _MAX_STEP
+    return raw & _MAX_STEP
+
+
+def _u16(buf: bytes, addr: int) -> int:
+    return struct.unpack_from("<H", buf, addr)[0] if len(buf) >= addr + 2 else 0
+
+
 class LiveBackend(StationBackend):
-    """Talks to a real NormaCore Station over TCP via station_py (host can be remote)."""
+    """Talks to a real NormaCore Station over TCP via station_py (host can be remote).
+
+    Background `follow` tasks keep the latest camera frame(s) and joint state in memory, so the
+    on-demand MCP tools (`look`/`get_state`) return instantly. Uses the Gremlin reader API exactly
+    as the repo's `example_follow.py` does.
+
+    `send_joint_targets` / `run_vla` / `home` are the next milestone (still stubbed).
+    """
+
+    ET_FRAMES = 0   # usbvideo.RxEnvelopeType.ET_FRAMES
+    FF_JPEG = 1     # frame.FrameFormatKind.FF_JPEG
 
     def __init__(self, host: str, port: int, norma_core_path: str):
         self.host = host
         self.port = port
         self.norma_core_path = os.path.abspath(norma_core_path)
         self.client = None
+        self._st3215 = None
+        self._usbvideo = None
+        self._latest_state: bytes | None = None
+        self._frames: dict[str, bytes] = {}   # camera key -> latest JPEG
+        self._frame_order: list[str] = []      # discovery order of cameras
+        self._tasks: list = []
+        # optional explicit camera selection by serial/unique_id substring
+        self._cam_map = {
+            "top": os.environ.get("CAMERA_TOP", "").strip(),
+            "wrist": os.environ.get("CAMERA_WRIST", "").strip(),
+        }
 
     async def connect(self) -> None:
-        # Put station_py + generated protobufs on the path (from the cloned norma-core repo).
+        # norma_core root -> resolves `target.gen_python.*` AND `shared.gremlin_py.*`
         sys.path.insert(0, self.norma_core_path)
+        # station_py lives here
         sys.path.insert(0, os.path.join(self.norma_core_path, "software/station/shared"))
         try:
             from station_py import new_station_client  # type: ignore
+            from target.gen_python.protobuf.drivers.st3215 import st3215 as st3215_pb2  # type: ignore
+            from target.gen_python.protobuf.drivers.usbvideo import usbvideo as usbvideo_pb2  # type: ignore
         except Exception as e:
             raise RuntimeError(
-                f"Could not import station_py from {self.norma_core_path}. "
+                f"Could not import station_py / protobufs from {self.norma_core_path}. "
                 "Set NORMA_CORE_PATH to the cloned norma-core repo, or run in mock mode."
             ) from e
+        self._st3215 = st3215_pb2
+        self._usbvideo = usbvideo_pb2
         self.client = await new_station_client(f"{self.host}:{self.port}", log)
         log.info("Connected to Station at %s:%s", self.host, self.port)
 
+        state_q: asyncio.Queue = asyncio.Queue()
+        video_q: asyncio.Queue = asyncio.Queue()
+        self.client.follow("st3215/inference", state_q)
+        self.client.follow("usbvideo", video_q)
+        self._tasks.append(asyncio.create_task(self._consume_state(state_q)))
+        self._tasks.append(asyncio.create_task(self._consume_video(video_q)))
+
+    async def _consume_state(self, q: asyncio.Queue) -> None:
+        while True:
+            entry = await q.get()
+            if entry is None:
+                break
+            try:
+                self._latest_state = bytes(entry.Data)
+            except Exception as e:
+                log.debug("state cache error: %s", e)
+
+    async def _consume_video(self, q: asyncio.Queue) -> None:
+        while True:
+            entry = await q.get()
+            if entry is None:
+                break
+            try:
+                env = self._usbvideo.RxEnvelopeReader(memoryview(bytes(entry.Data)))
+                if env.get_type() != self.ET_FRAMES:
+                    continue  # device-connected / recording / error events carry no frame
+                cam = env.get_camera()
+                key = cam.get_unique_id() or cam.get_serial_number() or cam.get_product() or "cam0"
+                data = env.get_frames().get_frames_data()
+                if not data:
+                    continue
+                self._frames[key] = bytes(data[-1])  # newest frame in the pack (assumed JPEG)
+                if key not in self._frame_order:
+                    self._frame_order.append(key)
+                    log.info("camera discovered: %s", key)
+            except Exception as e:
+                log.debug("video parse skip: %s", e)
+
+    async def _await_first(self, predicate, what: str, timeout_s: float = 5.0) -> None:
+        for _ in range(int(timeout_s / 0.1)):
+            if predicate():
+                return
+            await asyncio.sleep(0.1)
+        raise RuntimeError(f"No {what} received from Station within {timeout_s:.0f}s (is it connected?)")
+
     async def get_frame(self, camera: str = "top") -> bytes:
-        # TODO(hardware): follow "usbvideo", parse usbvideo.RxEnvelope, return frames.frames_data[0]
-        # (JPEG). Pick the right camera by serial/unique_id ("top" vs "wrist"). Confirm queue name(s).
-        raise NotImplementedError("LIVE get_frame: parse usbvideo RxEnvelope -> JPEG (wire on hardware)")
+        await self._await_first(lambda: bool(self._frames), "camera frames (usbvideo)")
+        want = self._cam_map.get(camera, "")
+        if want:
+            for key, jpeg in self._frames.items():
+                if want in key:
+                    return jpeg
+            log.warning("camera %r mapping %r not found; using discovery order", camera, want)
+        # fallback: top -> first discovered, wrist -> second (if present)
+        idx = 1 if (camera == "wrist" and len(self._frame_order) > 1) else 0
+        return self._frames[self._frame_order[idx]]
 
     async def get_state(self) -> RobotState:
-        # TODO(hardware): follow "st3215/inference", parse InferenceState; map per-motor position,
-        # current, range_min/range_max.
-        raise NotImplementedError("LIVE get_state: parse st3215/inference (wire on hardware)")
+        await self._await_first(lambda: self._latest_state is not None, "joint state (st3215/inference)")
+        reader = self._st3215.InferenceStateReader(memoryview(self._latest_state))
+        buses = reader.get_buses()
+        if not buses:
+            return RobotState("(no bus)", [])
+        bus = buses[0]
+        info = bus.get_bus()
+        serial = info.get_serial_number() if info else "?"
+        motors: list[MotorState] = []
+        for m in bus.get_motors():
+            sb = m.get_state()
+            pos = cur = 0
+            if sb:
+                buf = bytes(sb)
+                pos = _norm_pos(_u16(buf, _POS_ADDR))
+                cur = _u16(buf, _CUR_ADDR)
+            motors.append(MotorState(m.get_id(), pos, cur, m.get_range_min(), m.get_range_max()))
+        return RobotState(serial, motors)
 
     async def send_joint_targets(self, targets: dict[int, int]) -> bool:
-        # TODO(hardware): build an st3215 sync_write to target-position register 0x2A and send via
-        # send_commands. ALWAYS clamp via safety.clamp_targets(...) before this point.
-        raise NotImplementedError("LIVE send_joint_targets: st3215 sync_write (wire on hardware)")
+        # TODO(next milestone): st3215 sync_write to register 0x2A via send_commands. Clamp upstream.
+        raise NotImplementedError("LIVE send_joint_targets: st3215 sync_write (next milestone)")
 
     async def run_vla(self, instruction: str, max_tries: int) -> dict:
-        # TODO(NormaCore): confirm HOW the finetuned SmolVLA is triggered (Station command? inference
-        # queue? script?). Wrap that here; loop up to max_tries; report success/failure.
+        # TODO(NormaCore): confirm how the finetuned SmolVLA is triggered, then wrap + loop max_tries.
         raise NotImplementedError("LIVE run_vla: confirm NormaCore finetuned-SmolVLA run API")
 
     async def home(self) -> bool:
-        raise NotImplementedError("LIVE home: send home joint targets (wire on hardware)")
+        raise NotImplementedError("LIVE home: send home joint targets (next milestone)")

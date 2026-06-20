@@ -16,8 +16,8 @@ confirmation are stubbed and clearly marked `TODO` in `backend.py`.
 
 | Tool | Stage | Status |
 |---|---|---|
-| `look(camera="top"\|"wrist")` | both | ✅ mock · 🔧 live TODO (parse `usbvideo`) |
-| `get_state()` | both | ✅ mock · 🔧 live TODO (parse `st3215/inference`) |
+| `look(camera="top"\|"wrist")` | both | ✅ mock · ✅ live (parses `usbvideo`; untested on real cam) |
+| `get_state()` | both | ✅ mock · ✅ live (parses `st3215/inference`; untested on real arm) |
 | `run_vla_task(instruction, max_tries)` | 1 (primary) | ✅ mock · 🔧 live TODO (confirm NormaCore SmolVLA run API) |
 | `locate(target)` | 2 (fallback) | 🔧 TODO (ArUco + 2D→3D) |
 | `move_to(x,y,z)` | 2 (fallback) | 🔧 TODO (IK) |
@@ -53,7 +53,10 @@ Then in a Claude Code session, ask it to call `look` — the **hour-1 linchpin**
 actually *sees* the returned frame and can describe it. Once that works, everything else builds on it.
 
 ## What's left to wire (LIVE)
-- `look` / `get_state`: parse the `usbvideo` and `st3215/inference` protobufs (on hardware).
+- ✅ `look` / `get_state`: **implemented** (background `follow` of `usbvideo` + `st3215/inference`,
+  Gremlin reader parsing). Needs an end-to-end run against a real camera/arm to confirm.
 - `run_vla_task`: confirm with NormaCore exactly how the finetuned SmolVLA is triggered.
-- `locate` (ArUco + 2D→3D) and `move_to` (IK via `ikpy`/PyBullet + URDF).
-- Camera selection for `top` vs `wrist` (by serial/unique_id).
+- `locate` (ArUco + 2D→3D) and `move_to` (IK via `ikpy`/PyBullet + URDF); `send_joint_targets`
+  (st3215 sync_write to 0x2A) for live `grasp`/`release`.
+- Camera selection: set `CAMERA_TOP` / `CAMERA_WRIST` env to a serial/unique_id substring
+  (else falls back to discovery order: top=1st, wrist=2nd).
