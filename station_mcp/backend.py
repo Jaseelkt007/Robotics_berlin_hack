@@ -129,6 +129,7 @@ class MockBackend(StationBackend):
 _POS_ADDR, _CUR_ADDR = 0x38, 0x45
 _MAX_STEP, _SIGN_BIT = 4095, 0x8000
 _GOAL_POSITION, _TORQUE_ENABLE = 0x2A, 0x28  # write registers (goal=2B LE, torque=1B)
+_STATE_LEN = 0x47  # full per-motor register buffer (71 bytes); shorter = partial discovery entry
 
 
 def _norm_pos(raw: int) -> int:
@@ -155,10 +156,11 @@ class LiveBackend(StationBackend):
     ET_FRAMES = 0   # usbvideo.RxEnvelopeType.ET_FRAMES
     FF_JPEG = 1     # frame.FrameFormatKind.FF_JPEG
 
-    def __init__(self, host: str, port: int, norma_core_path: str):
+    def __init__(self, host: str, port: int, norma_core_path: str, target_bus: str | None = None):
         self.host = host
         self.port = port
         self.norma_core_path = os.path.abspath(norma_core_path)
+        self.target_bus = (target_bus or "").strip() or None  # pin which bus/arm to read+command
         self.client = None
         self._st3215 = None
         self._usbvideo = None
@@ -167,6 +169,7 @@ class LiveBackend(StationBackend):
         self._drivers = None
         self._torque_on: set[int] = set()  # motors we've safe-started (goal=present, then torque on)
         self._latest_state: bytes | None = None
+        self._motor_state: "dict[str, dict[int, MotorState]]" = {}  # accumulated per-bus per-motor state
         self._frames: dict[str, bytes] = {}   # camera key -> latest JPEG
         self._frame_order: list[str] = []      # discovery order of cameras
         self._tasks: list = []
@@ -205,6 +208,7 @@ class LiveBackend(StationBackend):
         self.client.follow("usbvideo", video_q)
         self._tasks.append(asyncio.create_task(self._consume_state(state_q)))
         self._tasks.append(asyncio.create_task(self._consume_video(video_q)))
+        await self._warmup_state()
 
     async def _consume_state(self, q: asyncio.Queue) -> None:
         while True:
@@ -212,7 +216,11 @@ class LiveBackend(StationBackend):
             if entry is None:
                 break
             try:
-                self._latest_state = bytes(entry.Data)
+                raw = bytes(entry.Data)
+                self._latest_state = raw
+                # Frames are incremental (a few motors each); merge full dumps into the running view.
+                for serial, motors in self._parse_buses(raw).items():
+                    self._motor_state.setdefault(serial, {}).update(motors)
             except Exception as e:
                 log.debug("state cache error: %s", e)
 
@@ -256,24 +264,63 @@ class LiveBackend(StationBackend):
         idx = 1 if (camera == "wrist" and len(self._frame_order) > 1) else 0
         return self._frames[self._frame_order[idx]]
 
+    def _parse_buses(self, raw: bytes) -> "dict[str, dict[int, MotorState]]":
+        """Aggregate motors per bus-serial. One bus can appear multiple times in a frame (a partial
+        discovery entry with empty state + a full entry); keep only motors with a full register dump."""
+        reader = self._st3215.InferenceStateReader(memoryview(raw))
+        by_bus: dict[str, dict[int, MotorState]] = {}
+        for bus in reader.get_buses():
+            info = bus.get_bus()
+            serial = info.get_serial_number() if info else "?"
+            slot = by_bus.setdefault(serial, {})
+            for m in bus.get_motors():
+                sb = bytes(m.get_state())
+                if len(sb) < _STATE_LEN:
+                    continue  # partial entry — no register dump yet
+                slot[m.get_id()] = MotorState(
+                    m.get_id(), _norm_pos(_u16(sb, _POS_ADDR)), _u16(sb, _CUR_ADDR),
+                    m.get_range_min(), m.get_range_max(),
+                )
+        return {se: ms for se, ms in by_bus.items() if ms}
+
+    def _select_bus(self, by_bus: "dict[str, dict[int, MotorState]]") -> str:
+        """Pick the arm to read/command: pinned STATION_BUS_SERIAL if present, else the bus with the
+        most CALIBRATED motors (range_min < range_max), then the most motors."""
+        if self.target_bus and self.target_bus in by_bus:
+            return self.target_bus
+
+        def score(item):
+            _, ms = item
+            calibrated = sum(1 for m in ms.values() if m.range_max > m.range_min)
+            return (calibrated, len(ms))
+
+        return max(by_bus.items(), key=score)[0]
+
+    async def _warmup_state(self, settle_s: float = 1.5, max_s: float = 6.0) -> None:
+        # Motor frames are per-motor incremental; let the accumulator fill until the selected bus
+        # motor count holds steady for settle_s (all joints reported), capped at max_s.
+        stable_needed = int(settle_s / 0.05)
+        prev, stable = -1, 0
+        for _ in range(int(max_s / 0.05)):
+            best = 0
+            if self._motor_state:
+                best = len(self._motor_state.get(self._select_bus(self._motor_state), {}))
+            if best > 0 and best == prev:
+                stable += 1
+                if stable >= stable_needed:
+                    break
+            else:
+                stable = 0
+            prev = best
+            await asyncio.sleep(0.05)
+        if self._motor_state:
+            serial = self._select_bus(self._motor_state)
+            log.info("state warmup: bus %s, %d motors", serial, len(self._motor_state[serial]))
+
     async def get_state(self) -> RobotState:
-        await self._await_first(lambda: self._latest_state is not None, "joint state (st3215/inference)")
-        reader = self._st3215.InferenceStateReader(memoryview(self._latest_state))
-        buses = reader.get_buses()
-        if not buses:
-            return RobotState("(no bus)", [])
-        bus = buses[0]
-        info = bus.get_bus()
-        serial = info.get_serial_number() if info else "?"
-        motors: list[MotorState] = []
-        for m in bus.get_motors():
-            sb = m.get_state()
-            pos = cur = 0
-            if sb:
-                buf = bytes(sb)
-                pos = _norm_pos(_u16(buf, _POS_ADDR))
-                cur = _u16(buf, _CUR_ADDR)
-            motors.append(MotorState(m.get_id(), pos, cur, m.get_range_min(), m.get_range_max()))
+        await self._await_first(lambda: bool(self._motor_state), "joint state (st3215/inference)")
+        serial = self._select_bus(self._motor_state)
+        motors = sorted(self._motor_state[serial].values(), key=lambda m: m.id)
         return RobotState(serial, motors)
 
     def _sync_write(self, bus_serial: str, address: int, values: dict[int, bytes]):

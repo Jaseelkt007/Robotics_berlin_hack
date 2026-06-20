@@ -43,6 +43,7 @@ log = logging.getLogger("station-mcp")
 STATION_HOST = os.environ.get("STATION_HOST", "").strip()
 STATION_PORT = int(os.environ.get("STATION_PORT", "8888"))
 NORMA_CORE_PATH = os.environ.get("NORMA_CORE_PATH", "../norma-core")
+STATION_BUS_SERIAL = os.environ.get("STATION_BUS_SERIAL", "").strip()  # pin the arm bus (2 buses present)
 MOCK_FRAME_PATH = os.environ.get("MOCK_FRAME_PATH") or None
 VLA_MAX_TRIES = int(os.environ.get("VLA_MAX_TRIES", "3"))
 FORCE_MOCK = os.environ.get("MOCK", "").lower() in ("1", "true", "yes")
@@ -51,7 +52,7 @@ USE_MOCK = FORCE_MOCK or not STATION_HOST
 backend = (
     MockBackend(MOCK_FRAME_PATH)
     if USE_MOCK
-    else LiveBackend(STATION_HOST, STATION_PORT, NORMA_CORE_PATH)
+    else LiveBackend(STATION_HOST, STATION_PORT, NORMA_CORE_PATH, STATION_BUS_SERIAL)
 )
 log.info("Backend: %s", "MOCK" if USE_MOCK else f"LIVE ({STATION_HOST}:{STATION_PORT})")
 
