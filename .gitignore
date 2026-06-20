@@ -1,0 +1,34 @@
+# --- Cloned upstream dependency (NOT vendored into this repo) ---
+# norma-core is NormaCore's own GitHub repo with its own git history.
+# Clone it separately (see root README). We only reference it.
+norma-core/
+
+# --- Local agent / editor config ---
+.claude/
+.idea/
+.vscode/
+
+# --- Python ---
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+.ipynb_checkpoints/
+
+# --- Node (for the future web app) ---
+node_modules/
+dist/
+build/
+.next/
+
+# --- Env / secrets ---
+.env
+.env.*
+!.env.example
+
+# --- OS / misc ---
+.DS_Store
+Thumbs.db
+*.swp
+*.log
