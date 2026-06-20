@@ -17,6 +17,10 @@ import sys
 import logging
 from dataclasses import dataclass
 
+# sibling import works regardless of the launcher's cwd
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from safety import clamp_targets  # noqa: E402
+
 log = logging.getLogger("station-mcp.backend")
 
 
@@ -124,6 +128,7 @@ class MockBackend(StationBackend):
 # Present-position (2B LE) and present-current (2B LE) live in the raw motor state dump.
 _POS_ADDR, _CUR_ADDR = 0x38, 0x45
 _MAX_STEP, _SIGN_BIT = 4095, 0x8000
+_GOAL_POSITION, _TORQUE_ENABLE = 0x2A, 0x28  # write registers (goal=2B LE, torque=1B)
 
 
 def _norm_pos(raw: int) -> int:
@@ -157,6 +162,10 @@ class LiveBackend(StationBackend):
         self.client = None
         self._st3215 = None
         self._usbvideo = None
+        self._send_commands = None
+        self._commands = None
+        self._drivers = None
+        self._torque_on: set[int] = set()  # motors we've safe-started (goal=present, then torque on)
         self._latest_state: bytes | None = None
         self._frames: dict[str, bytes] = {}   # camera key -> latest JPEG
         self._frame_order: list[str] = []      # discovery order of cameras
@@ -173,9 +182,10 @@ class LiveBackend(StationBackend):
         # station_py lives here
         sys.path.insert(0, os.path.join(self.norma_core_path, "software/station/shared"))
         try:
-            from station_py import new_station_client  # type: ignore
+            from station_py import new_station_client, send_commands  # type: ignore
             from target.gen_python.protobuf.drivers.st3215 import st3215 as st3215_pb2  # type: ignore
             from target.gen_python.protobuf.drivers.usbvideo import usbvideo as usbvideo_pb2  # type: ignore
+            from target.gen_python.protobuf.station import commands as commands_pb2, drivers as drivers_pb2  # type: ignore
         except Exception as e:
             raise RuntimeError(
                 f"Could not import station_py / protobufs from {self.norma_core_path}. "
@@ -183,6 +193,9 @@ class LiveBackend(StationBackend):
             ) from e
         self._st3215 = st3215_pb2
         self._usbvideo = usbvideo_pb2
+        self._send_commands = send_commands
+        self._commands = commands_pb2
+        self._drivers = drivers_pb2
         self.client = await new_station_client(f"{self.host}:{self.port}", log)
         log.info("Connected to Station at %s:%s", self.host, self.port)
 
@@ -263,13 +276,70 @@ class LiveBackend(StationBackend):
             motors.append(MotorState(m.get_id(), pos, cur, m.get_range_min(), m.get_range_max()))
         return RobotState(serial, motors)
 
+    def _sync_write(self, bus_serial: str, address: int, values: dict[int, bytes]):
+        """Build one ST3215 sync-write DriverCommand (same register, many motors, atomic)."""
+        st = self._st3215
+        motors = [
+            st.ST3215SyncWriteCommand_MotorWrite(motor_id=mid, value=val)
+            for mid, val in values.items()
+        ]
+        sync = st.ST3215SyncWriteCommand(address=address, motors=motors)
+        cmd = st.Command(target_bus_serial=bus_serial, sync_write=sync)
+        return self._commands.DriverCommand(
+            type=self._drivers.StationCommandType.STC_ST3215_COMMAND, body=cmd.encode()
+        )
+
     async def send_joint_targets(self, targets: dict[int, int]) -> bool:
-        # TODO(next milestone): st3215 sync_write to register 0x2A via send_commands. Clamp upstream.
-        raise NotImplementedError("LIVE send_joint_targets: st3215 sync_write (next milestone)")
+        """Move joints by sync-writing GoalPosition (0x2A) — mirrors NormaCore's run_policy.py.
+
+        Targets are normalized encoder steps (0..4095): the same domain as get_state() positions and
+        calibrated ranges. Every target is clamped to its [range_min, range_max] (defense in depth — the
+        MCP tools clamp too). Torque is safe-started per motor on first use (write goal=present, then
+        enable torque) so turning it on never snaps the arm. See docs/12-joint-control-plan.md.
+        """
+        if not targets:
+            return True
+        st = await self.get_state()
+        bus = st.bus_serial
+        present = {m.id: m.position for m in st.motors}
+        safe = clamp_targets({int(k): int(v) for k, v in targets.items()}, st.ranges())
+        safe = {mid: v for mid, v in safe.items() if mid in present}  # only motors actually on the bus
+        if not safe:
+            log.warning("send_joint_targets: no valid target motors after clamp (targets=%s)", targets)
+            return False
+
+        # First move for a given motor: hold at present, then enable torque (avoids a snap).
+        new_ids = [mid for mid in safe if mid not in self._torque_on]
+        if new_ids:
+            hold = {mid: int(present[mid]).to_bytes(2, "little") for mid in new_ids}
+            await self._send_commands(self.client, [self._sync_write(bus, _GOAL_POSITION, hold)])
+            await asyncio.sleep(0.2)
+            torque_on = {mid: b"\x01" for mid in new_ids}
+            await self._send_commands(self.client, [self._sync_write(bus, _TORQUE_ENABLE, torque_on)])
+            await asyncio.sleep(0.2)
+            self._torque_on.update(new_ids)
+
+        goals = {mid: int(v).to_bytes(2, "little") for mid, v in safe.items()}
+        await self._send_commands(self.client, [self._sync_write(bus, _GOAL_POSITION, goals)])
+        log.info("send_joint_targets -> %s (bus %s)", safe, bus)
+        return True
 
     async def run_vla(self, instruction: str, max_tries: int) -> dict:
-        # TODO(NormaCore): confirm how the finetuned SmolVLA is triggered, then wrap + loop max_tries.
-        raise NotImplementedError("LIVE run_vla: confirm NormaCore finetuned-SmolVLA run API")
+        # Stage 1 needs NormaCore's FINETUNED SmolVLA checkpoint (config.json + model.safetensors +
+        # stats.safetensors) — run_policy.py requires --checkpoint; a VLA cannot run without one.
+        # Wire this to their runner once we have the checkpoint path. See docs/12.
+        raise NotImplementedError(
+            "LIVE run_vla: needs NormaCore's finetuned SmolVLA checkpoint + trigger (Stage 1; see docs/12)"
+        )
 
     async def home(self) -> bool:
-        raise NotImplementedError("LIVE home: send home joint targets (next milestone)")
+        """Move every calibrated joint to the midpoint of its range — a safe, deterministic rest pose.
+
+        (A hand-tuned HOME_POSE can replace the midpoint once captured on the real arm.)
+        """
+        st = await self.get_state()
+        mid = {m.id: (m.range_min + m.range_max) // 2 for m in st.motors if m.range_max > m.range_min}
+        if not mid:
+            log.warning("home: no calibrated ranges in state; cannot compute a midpoint pose")
+            return False
+        return await self.send_joint_targets(mid)
