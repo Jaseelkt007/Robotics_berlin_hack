@@ -26,7 +26,8 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 # optional .env loading (no hard dependency)
 try:
     from dotenv import load_dotenv  # type: ignore
-    load_dotenv()
+    # load .env sitting next to this script, regardless of the launcher's cwd
+    load_dotenv(os.path.join(os.path.dirname(os.path.abspath(__file__)), ".env"))
 except Exception:
     pass
 
