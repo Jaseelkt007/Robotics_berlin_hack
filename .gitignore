@@ -32,3 +32,9 @@ build/
 Thumbs.db
 *.swp
 *.log
+
+# Playwright MCP browser session artifacts
+.playwright-mcp/
+
+# Stray root-level screenshots (put intentional images in docs/assets/)
+/*.png
