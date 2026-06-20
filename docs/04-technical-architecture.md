@@ -61,25 +61,35 @@ There are **two roles for Claude**: *Claude-the-coder* writes all the code below
 |---|---|
 | Scene understanding / visual analysis | **Inverse kinematics** (Cartesian → joint angles) via `ikpy`/PyBullet + NormaCore's **URDF** |
 | Task decomposition / subtasks | **Waypoints / trajectory** (joint interpolation; servos self-smooth) |
-| Identify *which* object + *approximate* pixel location + coarse orientation | **Metric pose estimation → NOT NEEDED;** replaced by **one-time calibration** |
+| Identify *which* object + *approximate* pixel location + coarse orientation | **Pose estimation (Stage-2 fallback): ArUco markers + 2D→3D mapping** (+ IK). Grasping method = TBD/placeholder. |
 | High-level grasp strategy | **Pixel → world** mapping (homography for fixed cam; FK-based for eye-in-hand) |
 | **Verify** success (visual) + interpret gripper feedback | Optional **OpenCV** refinement (centroid/PCA) for a precise grasp point/angle |
 | Detect failure → **retry/adjust** | Low-level servo control via the **Station API** |
 
-> Claude does **not** do IK or pose estimation — by design. Those are solved classically. The repo
-> ships the **URDF**, so IK is a few lines.
+> Claude does **not** do IK, pose estimation, or low-level control — by design. **Execution is a
+> two-stage system:** **Stage 1** = NormaCore's **finetuned SmolVLA** (a trained model NormaCore
+> provides; we don't train it ourselves initially); **Stage 2 fallback** = classical **ArUco pose +
+> IK** (the repo ships the URDF, so IK is a few lines). The "NO training" notes above refer to *our*
+> work — the Stage-1 model is finetuned by NormaCore. See
+> [`10-implementation-strategy.md`](./10-implementation-strategy.md).
 
-## The pick loop (end to end)
+## Execution: two-stage pick-and-place (end to end)
 
 ```
-1. look()                         → Claude sees the frame
-2. identify + locate object        → Claude (coarse pixel/region)  [+ optional OpenCV refine]
-3. pixel → world coordinate        → calibration (+ FK if eye-in-hand)
-4. world → joint angles            → IK on the URDF
-5. move + grasp()                  → Station API joint targets; servos smooth
-6. look() again + gripper feedback → Claude verifies "did I get it?"
-7. if failed → reopen, adjust, retry  (self-correction loop)
+TEXT/VOICE → Claude decomposes the task
+   │
+   ├─ STAGE 1 (PRIMARY) ───────────────────────────────────────────────
+   │   Claude issues the VLA instruction → NormaCore API runs the
+   │   FINETUNED SmolVLA → robot attempts the pick → N FIXED RETRIES → place
+   │   (used as-is at first; fine-tune on our objects later only if needed)
+   │
+   └─ if N tries fail → STAGE 2 (FALLBACK) ────────────────────────────
+       look() → ArUco markers + 2D→3D mapping → pose
+       → IK on the URDF → move → grasp (METHOD = PLACEHOLDER/TBD)
+       → look() to verify
 ```
+
+Full detail + UI spec: [`10-implementation-strategy.md`](./10-implementation-strategy.md).
 
 ## Camera strategy
 
@@ -92,6 +102,16 @@ There are **two roles for Claude**: *Claude-the-coder* writes all the code below
 - **Depth handled by constraining to a flat table** (height known) — no depth camera or training
   needed. Optional upgrades: RGB-D (RealSense) or monocular depth (Depth Anything v2). All no-training.
 - Multiple cameras supported: `look(camera="overview")` to plan + `look(camera="wrist")` to grasp.
+
+## UI — operator console (React, built in stages)
+
+A button **slides open a window** containing:
+- NormaCore **calibration + home** controls.
+- **Two camera views: wrist + top.**
+- A **chat box** for text task input.
+
+The same app also shows the live run ("watch it think"). UI code + integration are built
+**progressively**. See [`10-implementation-strategy.md`](./10-implementation-strategy.md).
 
 ## Latency / "make it feel like a conversation"
 
@@ -120,6 +140,7 @@ There are **two roles for Claude**: *Claude-the-coder* writes all the code below
 3. **ElevenLabs → local backend** → client-side tool calling localhost (fallback: cloudflared).
 4. **Grasp accuracy** → OpenCV centroid/PCA refinement (planned fallback) + gripper tolerance (~54mm).
 5. **True 3D needed** → add RGB-D camera (only if demo requires off-table objects).
-6. **Smoother grasps wanted** → drop in a *pre-trained* SmolVLA as a single "grasp" tool (optional).
+6. **Finetuned SmolVLA can't handle our objects** → (a) the classical **pose+IK fallback (Stage 2)** covers it; (b) **fine-tune** NormaCore's SmolVLA on our objects (later step).
+7. **Fallback grasping method undecided** → placeholder; teammate is finalizing the approach.
 
 > Every risk is a **swappable module**, not an architecture change. The spine is fixed.

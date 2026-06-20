@@ -33,7 +33,8 @@
 | Voice agent (primary) | **ElevenLabs Conversational AI** | ⚠️ Not a sponsor, **but we have ample credits** ✅ | Voice I/O only; hands off to Claude. Swappable. |
 | Voice agent (backup) | **Gemini (Live API)** | **We have Gemini credits** ✅ | Real-time conversational voice fallback if ElevenLabs runs out (same role used in our Jarvis project). Can also serve as a backup vision/LLM. |
 | Voice agent (last resort) | Browser **Web Speech API** | Free | Zero-cost fallback for STT; pair with any TTS. |
-| Optional VLA "smart grasp" | **SmolVLA** (HF/LeRobot) | Sponsor ecosystem | Only if a pre-trained checkpoint is provided; needs training otherwise → default **not used**. |
+| **Primary executor (Stage 1)** | **SmolVLA** (NormaCore-**finetuned**) | Sponsor — NormaCore provides it | Used **as-is** initially (no training by us); fine-tune on our objects later *only if* tests require. See `10`. |
+| **Fallback executor (Stage 2)** | **ArUco + 2D→3D + IK** (our build) | our code | Classical pick-place when Stage 1 fails N tries. **Grasping method = TBD/placeholder.** |
 | Optional LLM alternative | **Mistral** open-weight | Sponsor | EU/open-weight story; primary brain is Claude, backup is Gemini. |
 
 > **Resource status (confirmed by team):** ElevenLabs credits = **plenty** ✅. Gemini credits =

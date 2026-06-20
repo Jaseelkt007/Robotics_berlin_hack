@@ -95,8 +95,10 @@ closed = empty; stopped partway + current rise = holding).
   end-to-end. Small (~450M params), built for real-time control.
 - Trained by **imitation learning** (teleoperate → collect dataset → fine-tune). `smolvla_py` is the
   fine-tune/deploy harness.
-- **Complementary to Claude** (fast/smooth but needs training & can't reason) — see decisions doc.
-- Our default: **not used** (needs training). Optional upgrade if a pre-trained checkpoint is given.
+- **Our PRIMARY executor (Stage 1):** NormaCore provides a **finetuned SmolVLA** that we call **as-is**
+  (no training by us initially). Claude decomposes the task, issues the VLA instruction, and the robot
+  retries **N** times. **Fine-tuning on our objects is a conditional later step** if testing shows our
+  objects aren't handled. Classical **ArUco-pose + IK** is the Stage-2 fallback. See `06` D8 and `10`.
 
 ## Examples worth reading in the repo
 

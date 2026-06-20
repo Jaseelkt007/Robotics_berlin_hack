@@ -136,6 +136,8 @@
 | `move_to(x,y[,z])` / joint move | §3 control | `sync_write` / `write` to target-position register `0x2A` (after our IK) |
 | `grasp()` / `release()` | §3 control + §4 | gripper motor `write` + current feedback to confirm hold |
 | safety clamps | §4 ranges | `range_min` / `range_max` per motor |
+| **Stage-1 VLA task** (primary) | §7 inference | NormaCore **finetuned SmolVLA** via the inference path (`inference/normvla` + Station API) |
 
-Everything else (mirroring §6, VLA §7, datasets §8, sysinfo §9) is **bonus** — available if useful,
-not required for the core demo.
+**Primary execution uses §7 (VLA):** Claude decomposes the request and calls NormaCore's **finetuned
+SmolVLA**. **Stage-2 fallback uses §3–§5** (camera + `look`/`get_state` + joint control) with **ArUco
+pose + IK** (grasping TBD). Mirroring §6, datasets §8, sysinfo §9 remain bonus. See `10`.

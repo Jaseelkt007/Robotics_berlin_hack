@@ -4,12 +4,13 @@
 > record of *what we decided and the reasoning*, so we (and our friends, and Claude/Codex) don't
 > re-litigate settled points.
 
-## D1 — Do we need to train any model? **No (for the demo).**
-- **Verdict:** No imitation learning / VLA training. We use Claude (zero-shot intelligence) +
-  **one-time calibration** + **inverse kinematics** (on the shipped URDF) + simple primitives.
-- **Why:** Recognition, localization (coarse), planning, verification, and recovery are all zero-shot
-  for Claude. The only "robot-specific" parts are calibration + IK, which are *math/config*, not
-  training. Training (SmolVLA) only buys smoothness/dexterity — a roadmap item, not a requirement.
+## D1 — Do we need to train any model? **Not initially — Stage 1 uses NormaCore's *finetuned* SmolVLA as-is.**
+- **Verdict:** Stage-1 execution uses NormaCore's **already-finetuned SmolVLA** (we call it as-is, **no
+  training by us**). The **Stage-2 fallback** (ArUco pose + IK) needs no training either. **Conditional
+  later step:** if tests show our objects aren't handled reliably, **fine-tune NormaCore's SmolVLA on
+  our objects.**
+- **Why:** Claude's reasoning/decomposition is zero-shot; the learned grasp skill comes pre-finetuned
+  from NormaCore; the classical fallback is math/config. See [`10-implementation-strategy.md`](./10-implementation-strategy.md).
 
 ## D2 — Can Claude "do everything"? **No — precise split.**
 - **Verdict:** Claude does the **intelligence**, not the geometry.
@@ -26,12 +27,13 @@
 - **Why:** The Station controls at **joint level only** (no Cartesian/IK). But the repo **ships the
   URDF**, so IK is a few lines. Training is the *alternative* to IK, not a requirement.
 
-## D4 — Pose estimation: can Claude do it? **No — we don't need it.**
-- **Verdict:** Claude is **not** a metric pose estimator (won't give mm/degree-accurate 6-DoF). We
-  **replace pose estimation with calibration**: pixel → world via a homography (fixed cam) or FK
-  (eye-in-hand). Orientation via OpenCV PCA or Claude's coarse estimate (irrelevant for round objects).
-- **Why:** For top-down grasps on a known surface, calibration fully determines the world coordinate.
-  No pose model required.
+## D4 — Pose estimation: do we use it? **Yes — as the Stage-2 fallback.**
+- **Verdict:** Claude is **not** a metric pose estimator. The **fallback** path uses a classical
+  **pose-estimation module: ArUco markers + 2D→3D mapping**, then **IK**. (Stage 1 / SmolVLA is
+  end-to-end and needs no explicit pose.) **The fallback grasping method is not finalized — placeholder**
+  until the teammate decides.
+- **Why:** ArUco gives a reliable, training-free 3D pose from known markers — the deterministic backup
+  when the VLA fails its N tries. (Earlier homography/calibration notes in D5–D7 are fallback details.)
 
 ## D5 — How much extra computer vision? **Minimal; Claude codes it.**
 - **Verdict:** At most a homography (a matrix multiply) + optional ~20 lines of OpenCV
@@ -54,12 +56,13 @@
   already does FK). Calibrate the fixed camera↔gripper offset once (`cv2.calibrateHandEye`). Best of
   both: an overview cam to plan + a wrist cam to grasp.
 
-## D8 — Will we use SmolVLA? **Default no; optional drop-in.**
-- **Verdict:** Don't depend on it (it needs training). If NormaCore provides a **pre-trained**
-  checkpoint, Claude can call it as a single "smart grasp" tool (Claude decides what/where; VLA
-  executes smoothly).
-- **Why:** SmolVLA is the opposite trade-off from Claude (fast/smooth but needs demos, can't reason).
-  Complementary, not required.
+## D8 — Will we use SmolVLA? **Yes — it's the PRIMARY executor (Stage 1).**
+- **Verdict:** Claude decomposes the request and issues a language instruction to **NormaCore's
+  finetuned SmolVLA** via the Station API; the robot retries **N** times. Used **as-is** at first (no
+  training by us); **fine-tune on our objects later only if needed.** Classical **ArUco-pose + IK** is
+  the Stage-2 fallback.
+- **Why:** NormaCore provides the finetuned model, so we get a learned grasp skill for free; the
+  fallback guarantees a deterministic path. See [`10-implementation-strategy.md`](./10-implementation-strategy.md).
 
 ## D9 — Latency: can it feel conversational? **Yes, with UX design.**
 - **Verdict:** Talking is instant (~1 s); a full physical task is **~15–30 s**. **Decouple
@@ -89,6 +92,8 @@
 
 ## Net feasibility verdict
 
-**Possible this weekend, with no training:** voice-commanded pick/hand/place of graspable objects on
-a surface, with self-correction, at conversational-feeling speed. The architecture is **modular** —
-the worry-items (better CV, depth, a VLA, smoother motion) are **drop-in upgrades, not rewrites.**
+**Possible this weekend:** text/voice-commanded pick-and-place via a **two-stage executor** — **Stage 1**
+NormaCore **finetuned SmolVLA** (no training by us initially), **Stage 2** **ArUco-pose + IK** fallback
+(grasping TBD) — orchestrated by Claude (decompose → run → retry → fallback). The architecture is
+**modular**; fine-tuning SmolVLA on our objects is a conditional later upgrade. See
+[`10-implementation-strategy.md`](./10-implementation-strategy.md).

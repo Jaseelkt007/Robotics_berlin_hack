@@ -5,8 +5,11 @@ can control the robot by looking through the cameras."*
 
 **What we're building:** a **voice-commanded robotic "third hand"** — an assistant you *talk to* that
 looks through the robot's camera, figures out the physical task, does it, and **corrects itself when it
-fails**. The breakthrough is that **Claude itself is the brain** (Claude Code CLI agentic loop), with
-NormaCore's Station API wrapped as an **MCP server** — **no model training required**.
+fails**. The breakthrough is that **Claude itself is the brain** (Claude Code CLI agentic loop)
+orchestrating a **two-stage executor** — **Stage 1:** NormaCore's **finetuned SmolVLA**; **Stage 2
+fallback:** **pose estimation (ArUco + 2D→3D) + IK**. NormaCore's Station API is wrapped as an **MCP
+server**. *(We train nothing ourselves initially; fine-tuning SmolVLA on our objects is a possible
+later step.)* See [`docs/10-implementation-strategy.md`](./docs/10-implementation-strategy.md).
 
 > One-liner: *Not a remote control — an assistant with eyes, judgment, and a conversation.*
 

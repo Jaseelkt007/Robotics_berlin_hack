@@ -38,18 +38,22 @@
 5. [ ] One full **pick** primitive (move → grasp → lift), then the **verify + retry** loop.
 6. [ ] Voice → Claude handoff → spoken result (instant ack + background action).
 
-## E. Build order (NOT a detailed plan yet — sequence only)
+## E. Build order — STAGED (see [`10-implementation-strategy.md`](./10-implementation-strategy.md))
 
-> A full hour-by-hour implementation plan is **deliberately not written yet** (per team decision).
-> Rough intended sequence once we start:
-
+**Stage 1 — primary executor:**
 1. Station-MCP server scaffold + `look()` vision proof (linchpin).
-2. `get_state()` + `move_to()`/`grasp()`/`release()` + safety clamps.
-3. Calibration + IK glue.
-4. The Claude **Skill** (operator persona, safety rules, the perceive→act→verify→recover loop).
-5. Pick + verify + retry working on real hardware.
-6. Voice (ElevenLabs client-tool handoff) + the React "watch it think" web app.
-7. Demo scenario rehearsal + the pitch.
+2. Claude **language decomposition** → call the **NormaCore finetuned-SmolVLA** API → **N retries** → place.
+3. After tests, decide if our objects are handled; if not → **fine-tune SmolVLA on our objects** (later).
+
+**UI (staged):**
+4. Slide-out window: NormaCore **calibration + home**, **wrist + top** camera views, **chat box**.
+
+**Stage 2 — fallback executor:**
+5. **Pose estimation: ArUco + 2D→3D mapping** → **IK** (URDF). **Grasping method = placeholder (TBD).**
+6. Wire the fallback trigger (after N failed Stage-1 tries).
+
+**Voice + polish:**
+7. Voice (ElevenLabs / Gemini backup) handoff; demo rehearsal + pitch.
 
 ## F. Known risks (carried from architecture doc)
 
@@ -60,7 +64,8 @@
 | ElevenLabs → local backend reach | Client-side tool → localhost; fallback cloudflared / Web Speech | 🟡 medium |
 | Grasp accuracy too coarse | OpenCV centroid/PCA refine + gripper tolerance (~54 mm) | 🟡 medium |
 | Need true 3D (off-table objects) | Add RGB-D camera | 🟢 low (scope control) |
-| Grasps not smooth enough | Drop in pre-trained SmolVLA as one tool | 🟢 low (optional) |
+| Finetuned SmolVLA can't handle our objects | Pose+IK fallback (Stage 2); fine-tune SmolVLA on our objects later | 🟡 medium |
+| Fallback grasping method undecided | Placeholder; teammate finalizing the approach | 🟡 medium |
 
 ## G. Immediate next action
 

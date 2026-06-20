@@ -25,6 +25,7 @@ Read in order if you're new to the project:
 | [`07-open-questions-and-next-steps.md`](./07-open-questions-and-next-steps.md) | What's still TBD, what to confirm on-site, next actions |
 | [`08-station-api-capabilities.md`](./08-station-api-capabilities.md) | Full Station API capability tables (from the protobufs + client) |
 | [`09-dh-parameters.md`](./09-dh-parameters.md) | DH parameters + exact kinematics for ElRobot & SO-101 (leader/follower) |
+| ⭐ [`10-implementation-strategy.md`](./10-implementation-strategy.md) | **Canonical** two-stage executor (SmolVLA + pose/IK fallback), Claude's role, UI spec |
 | [`scripts/dh_from_urdf.py`](./scripts/dh_from_urdf.py) | Reproducible URDF→DH derivation script (no deps) |
 
 ---
@@ -35,9 +36,10 @@ We are building a **voice-commanded robotic "third hand"** for people whose hand
 incapable (disabled/elderly first; clinical/lab/technician as expansion). You talk to it; it looks
 through the robot's camera, figures out what to do, does it, and corrects itself when it fails. The
 breakthrough is that **Claude itself is the brain** — we wrap NormaCore's Station API as an **MCP
-server** and run the **Claude Code CLI** (or Codex) as a live agentic loop. **No model training** is
-required: Claude supplies the intelligence zero-shot; classical code (calibration + inverse
-kinematics on NormaCore's URDF + simple primitives, all written by Claude) supplies the geometry.
+server** and run the **Claude Code CLI** (or Codex) as a live agentic loop. Claude **decomposes the
+request** and drives a **two-stage executor**: **Stage 1 (primary)** = NormaCore's **finetuned SmolVLA**
+(used as-is initially; fine-tuned on our objects later only if needed); **Stage 2 (fallback)** =
+**pose estimation (ArUco + 2D→3D) + IK**. See [`10-implementation-strategy.md`](./10-implementation-strategy.md).
 
 ## Conventions
 

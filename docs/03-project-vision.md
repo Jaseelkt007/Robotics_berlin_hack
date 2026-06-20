@@ -43,8 +43,10 @@ the robotics giants build.
   via natural conversation.** That is our white space.
 - **The robot is almost incidental.** The moat is the **domain workflow + UX + the reasoning layer**,
   not the hardware (which is commoditizing — NormaCore arms are ~$220).
-- **Zero per-task training** (Claude generalizes) means it handles novel objects/tasks instantly,
-  where trained VLAs need data per task.
+- **Two-stage robustness, orchestrated by a general brain.** Claude (zero-shot reasoning) decomposes
+  any spoken request, then executes via a **finetuned SmolVLA** (Stage 1) with a **deterministic
+  pose+IK fallback** (Stage 2) — flexible *and* reliable. The moat is the orchestration + UX + vertical
+  (plus a data flywheel: fine-tune on our objects as we collect), not any single model.
 
 ## Market & comparables (validates the thesis is real, not hype)
 
@@ -74,13 +76,13 @@ the robotics giants build.
 > Millions of people — someone with a disability, a surgeon mid-operation, a scientist with both
 > hands in a glovebox — physically can't free their hands, so they need a second person just to fetch
 > and hand them things. We're building the robotic "third hand" you simply **talk to**: you say "hand
-> me my water bottle" or "pick up the pills I dropped," and it does it. The breakthrough is we make
-> **Claude itself the brain** — we wrap NormaCore's Station API as an MCP server (`look`, `move_to`,
-> `grasp`, `release`) and run the Claude Code CLI as a live agentic loop: it looks through the robot's
-> camera, reasons about how to grab the object, acts, then looks again to verify and retries if it
-> missed — real self-correction, **zero per-object training.** Voice is an ElevenLabs agent, the whole
-> thing runs in a React web app where you watch the AI think in real time. It's not a remote
-> control — it's an assistant with eyes, judgment, and a conversation.
+> me my water bottle" or "pick up the pills I dropped," and it does it. **Claude is the brain** — it
+> understands your request, sees through the robot's cameras, and drives a **two-stage executor**:
+> NormaCore's **finetuned vision-language-action model** does the pick, and a **deterministic
+> pose-estimation + IK fallback** takes over if it struggles — so it's both flexible *and* reliable. It
+> runs in a React web app (live **wrist + top** camera views, calibration controls, and a chat box),
+> with NormaCore's Station API wrapped as an **MCP server** so Claude can drive the robot directly. It's
+> not a remote control — it's an assistant with eyes, judgment, and a conversation.
 
 ## Why we win the room
 
