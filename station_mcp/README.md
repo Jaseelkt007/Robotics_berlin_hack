@@ -115,7 +115,9 @@ Everything (Station + arm + cameras) on a single Windows+WSL box. Lessons from a
 4. **Calibration is NormaCore's, not ours.** Calibrate each arm in NormaCore's **station-viewer**
    calibration page (`/st3215-bus-calibration`). Our MCP only *reads* the calibrated ranges (used to
    clamp motion). An uncalibrated bus shows degenerate ranges (min==max / min>max).
-5. **Cameras need a UVC/V4L2 kernel.** The stock WSL2 kernel often lacks `uvcvideo` → no `/dev/video*`
-   even when `usbipd` shows the camera Attached (motors still work, since serial uses a built-in
-   driver). Fix: `wsl --update` (if the current stock kernel now ships UVC) or boot a custom
-   UVC-enabled WSL kernel via `.wslconfig`. Verify with `ls /dev/video*` before expecting `look()` to work.
+5. **Cameras need a UVC/V4L2 kernel — fix is `wsl --update`.** The old 5.15 WSL2 kernel lacks
+   `uvcvideo` → no `/dev/video*` even when `usbipd` shows the camera Attached (motors still work,
+   since serial uses a built-in driver). **CONFIRMED:** `wsl --update` brings a **6.x** WSL2 kernel
+   that includes `uvcvideo` — no custom kernel needed (verified on a teammate's box: kernel 6.18.x,
+   C270 → `/dev/video0`). After updating: `wsl --shutdown`, re-attach USB, then verify
+   `v4l2-ctl --list-devices` / `ls /dev/video*` before expecting `look()` to work.
