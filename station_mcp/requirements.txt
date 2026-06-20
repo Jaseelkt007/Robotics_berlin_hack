@@ -1,3 +1,8 @@
 mcp>=1.2.0
 pillow>=10.0.0
 python-dotenv>=1.0.0
+
+# Stage-2 fallback (ArUco pose estimation + inverse kinematics) — locate()/move_to()
+opencv-contrib-python-headless>=4.10
+numpy>=1.26
+ikpy>=3.4
