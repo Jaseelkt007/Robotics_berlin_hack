@@ -83,7 +83,7 @@ Claude for stronger vision.
 
 ## Build sequencing (recommended)
 
-1. **MCP server skeleton** + `look()` / `get_state()` / one safe move → prove against the (remote) Station via **Claude Code CLI**. *(Critical path — do this first.)*
+1. **MCP server skeleton** + `look()` / `get_state()` / one safe move → prove against the (remote) Station via **Claude Code CLI**. *(Critical path — do this first.)* **Scaffold exists: [`/station_mcp/`](../station_mcp/) — runs in mock mode today; live hooks stubbed with `TODO`s.**
 2. **Stage-1 tool** `run_vla_task` wired to NormaCore's finetuned SmolVLA + the **Skill** (decompose → run → N retries).
 3. **Stage-2 fallback** tools (ArUco locate → move/grasp; grasping placeholder).
 4. **UI** (see below) consuming the frozen tool contract — can start in parallel once tools are defined.
