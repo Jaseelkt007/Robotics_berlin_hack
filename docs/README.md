@@ -26,6 +26,7 @@ Read in order if you're new to the project:
 | [`08-station-api-capabilities.md`](./08-station-api-capabilities.md) | Full Station API capability tables (from the protobufs + client) |
 | [`09-dh-parameters.md`](./09-dh-parameters.md) | DH parameters + exact kinematics for ElRobot & SO-101 (leader/follower) |
 | ⭐ [`10-implementation-strategy.md`](./10-implementation-strategy.md) | **Canonical** two-stage executor (SmolVLA + pose/IK fallback), Claude's role, UI spec |
+| [`11-claude-integration.md`](./11-claude-integration.md) | How Claude connects to the Station (MCP server, tools, Skill, Agent SDK, sequencing, UI) |
 | [`scripts/dh_from_urdf.py`](./scripts/dh_from_urdf.py) | Reproducible URDF→DH derivation script (no deps) |
 
 ---
