@@ -4,7 +4,8 @@
 norma-core/
 
 # --- Local agent / editor config ---
-.claude/
+.claude/*
+!.claude/skills/
 .idea/
 .vscode/
 
