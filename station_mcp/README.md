@@ -98,3 +98,24 @@ and connect over the LAN.
 - `locate` (ArUco + 2D→3D) and `move_to` (IK via `ikpy`/PyBullet + URDF).
 - `send_joint_targets` (st3215 `sync_write` to `0x2A`) → unlocks live `grasp`/`release`/`home`.
 - Confirm camera mapping (`CAMERA_TOP`/`CAMERA_WRIST`) once the real serials show up in the logs.
+
+
+## Live bring-up notes (WSL, one machine)
+
+Everything (Station + arm + cameras) on a single Windows+WSL box. Lessons from a real bring-up:
+
+1. **Bind USB into WSL** (admin PowerShell, `usbipd`): the **motor buses** are the two `CH343` serial
+   adapters (show up as `/dev/ttyACM*`), e.g. `usbipd attach --wsl --busid 6-2` and `6-3`. Cameras
+   (`usbipd attach --wsl --busid <cam>`) also need the kernel bit below.
+2. **`.env`**: `STATION_HOST=127.0.0.1`, `STATION_PORT=8888`, `NORMA_CORE_PATH=<clone>`.
+3. **Two buses (leader + follower).** `get_state` auto-selects the **most-calibrated** bus; pin a
+   specific arm with `STATION_BUS_SERIAL=<serial>` (serials are printed in the server logs / `get_state`).
+   The frame stream is per-motor *incremental* and lists a bus twice (a partial entry + the full one) —
+   the backend accumulates full register dumps and ignores the partials, so all joints appear.
+4. **Calibration is NormaCore's, not ours.** Calibrate each arm in NormaCore's **station-viewer**
+   calibration page (`/st3215-bus-calibration`). Our MCP only *reads* the calibrated ranges (used to
+   clamp motion). An uncalibrated bus shows degenerate ranges (min==max / min>max).
+5. **Cameras need a UVC/V4L2 kernel.** The stock WSL2 kernel often lacks `uvcvideo` → no `/dev/video*`
+   even when `usbipd` shows the camera Attached (motors still work, since serial uses a built-in
+   driver). Fix: `wsl --update` (if the current stock kernel now ships UVC) or boot a custom
+   UVC-enabled WSL kernel via `.wslconfig`. Verify with `ls /dev/video*` before expecting `look()` to work.
