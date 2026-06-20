@@ -27,6 +27,7 @@ Read in order if you're new to the project:
 | [`09-dh-parameters.md`](./09-dh-parameters.md) | DH parameters + exact kinematics for ElRobot & SO-101 (leader/follower) |
 | ⭐ [`10-implementation-strategy.md`](./10-implementation-strategy.md) | **Canonical** two-stage executor (SmolVLA + pose/IK fallback), Claude's role, UI spec |
 | [`11-claude-integration.md`](./11-claude-integration.md) | How Claude connects to the Station (MCP server, tools, Skill, Agent SDK, sequencing, UI) |
+| [`12-joint-control-plan.md`](./12-joint-control-plan.md) | Plan for `send_joint_targets` → `grasp`/`release`/`home` (verified against NormaCore's own sync-write path) |
 | [`scripts/dh_from_urdf.py`](./scripts/dh_from_urdf.py) | Reproducible URDF→DH derivation script (no deps) |
 
 ---

@@ -9,6 +9,13 @@ just exposed over a WebSocket so the browser (text now, voice later) can reach i
 - **Mock mode by default** — `STATION_HOST` unset ⇒ no hardware needed (matches `station_mcp`).
 - **Headless** — `permission_mode=bypassPermissions`, only `mcp__normacore-station__*` tools allowed.
 
+## Prerequisites
+
+- **The Claude Code CLI must be installed** (`claude`) — the Agent SDK drives it under the hood. Install
+  it (e.g. `npm i -g @anthropic-ai/claude-code`) and verify `claude --version`.
+- **A Claude subscription** (Pro/Max) logged in via `claude login`.
+- `station_mcp` set up (its own venv) — this service launches it with `station_mcp/.venv`'s interpreter.
+
 ## Setup
 
 ```bash
