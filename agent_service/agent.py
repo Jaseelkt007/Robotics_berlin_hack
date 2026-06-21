@@ -12,6 +12,7 @@ This is the SAME engine + SAME skill + SAME MCP that someone gets by running Cla
 """
 from __future__ import annotations
 
+import contextlib
 import os
 from pathlib import Path
 from typing import Any, AsyncIterator
@@ -147,6 +148,13 @@ class RobotBrain:
         if self._client is not None:
             await self._client.disconnect()
             self._client = None
+
+    async def interrupt(self) -> None:
+        """Abort the in-flight turn (Stop button) so the brain stops issuing tool calls and the user
+        can ask something else. A tool call already running (e.g. a move) may still finish."""
+        if self._client is not None:
+            with contextlib.suppress(Exception):
+                await self._client.interrupt()
 
     async def ask(self, prompt: str) -> AsyncIterator[dict[str, Any]]:
         """Send one user turn into the persistent session and stream normalized UI events."""

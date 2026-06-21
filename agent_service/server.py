@@ -38,23 +38,36 @@ async def health() -> dict[str, str]:
 @app.websocket("/chat")
 async def chat(ws: WebSocket) -> None:
     await ws.accept()
+    turn: asyncio.Task | None = None  # the in-flight turn, so a {"type":"stop"} can interrupt it
+
+    async def run_turn(text: str) -> None:
+        # Serialize: only one turn drives the arm at a time. Runs as a task so the receive loop
+        # keeps reading (incl. a stop) while this streams.
+        async with turn_lock:
+            try:
+                async for event in brain.ask(text):
+                    await ws.send_json(event)
+            except Exception as exc:  # surface brain/MCP errors to the UI instead of dropping
+                with contextlib.suppress(Exception):
+                    await ws.send_json({"kind": "error", "message": str(exc)})
+            with contextlib.suppress(Exception):
+                await ws.send_json({"kind": "turn_end"})
+
     try:
         while True:
             data = await ws.receive_json()
+            if (data or {}).get("type") == "stop":
+                await brain.interrupt()  # abort the current turn; it then emits turn_end on its own
+                continue
             text = (data or {}).get("text", "").strip()
             if not text:
                 continue
-            # Serialize: only one turn drives the arm at a time.
-            async with turn_lock:
-                try:
-                    async for event in brain.ask(text):
-                        await ws.send_json(event)
-                except Exception as exc:  # surface brain/MCP errors to the UI instead of dropping
-                    await ws.send_json({"kind": "error", "message": str(exc)})
-                await ws.send_json({"kind": "turn_end"})
+            turn = asyncio.create_task(run_turn(text))
     except WebSocketDisconnect:
         pass
     finally:
+        if turn is not None and not turn.done():
+            turn.cancel()
         with contextlib.suppress(Exception):
             await ws.close()
 

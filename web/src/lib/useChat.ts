@@ -51,6 +51,7 @@ export interface ChatState {
   connected: boolean;
   busy: boolean;
   send: (text: string) => void;
+  stop: () => void;
 }
 
 export function useChat(): ChatState {
@@ -145,5 +146,12 @@ export function useChat(): ChatState {
     [push],
   );
 
-  return { items, connected, busy, send };
+  // Interrupt the in-flight turn so the user can ask something else mid-task.
+  const stop = useCallback(() => {
+    const ws = wsRef.current;
+    if (!ws || ws.readyState !== WebSocket.OPEN) return;
+    ws.send(JSON.stringify({ type: "stop" }));
+  }, []);
+
+  return { items, connected, busy, send, stop };
 }

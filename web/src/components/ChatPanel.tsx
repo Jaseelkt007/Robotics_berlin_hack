@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { ArrowUp, Brain, Check, Loader2, Search, Wrench } from "lucide-react";
+import { ArrowUp, Brain, Check, Loader2, Search, Square, Wrench } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import type { FeedItem } from "../types";
@@ -160,13 +160,23 @@ export default function ChatPanel({ chat }: { chat: ChatState }) {
             disabled={!chat.connected}
             className="max-h-32 flex-1 resize-none bg-transparent text-[14px] outline-none placeholder:text-faint disabled:opacity-50"
           />
-          <button
-            onClick={submit}
-            disabled={!draft.trim() || chat.busy || !chat.connected}
-            className="flex h-8 w-8 items-center justify-center rounded-lg bg-ink text-white disabled:opacity-30"
-          >
-            <ArrowUp size={16} />
-          </button>
+          {chat.busy ? (
+            <button
+              onClick={() => chat.stop()}
+              title="Stop the current task"
+              className="flex h-8 w-8 items-center justify-center rounded-lg bg-red-600 text-white hover:bg-red-700"
+            >
+              <Square size={14} fill="currentColor" />
+            </button>
+          ) : (
+            <button
+              onClick={submit}
+              disabled={!draft.trim() || !chat.connected}
+              className="flex h-8 w-8 items-center justify-center rounded-lg bg-ink text-white disabled:opacity-30"
+            >
+              <ArrowUp size={16} />
+            </button>
+          )}
         </div>
       </div>
     </div>
