@@ -1,0 +1,28 @@
+{
+  "_comment": "EXAMPLE ONLY. Generate the real waypoints.json with calibrate.py on the live arm. Joints are encoder steps (0-4095) for the arm motors; pixels are (x,y) in the top-camera frame. The server loads waypoints.json by default (override with WAYPOINTS_PATH).",
+  "version": 1,
+  "frame": { "camera": "top", "width": 640, "height": 480 },
+  "orientation_note": "all grid poses share one locked gripper orientation",
+  "arm_motor_ids": [1, 2, 3, 4, 5, 6, 7],
+  "gripper": { "id": 8, "open_step": 1200, "closed_step": 2400, "grasp_current_threshold_ma": 250 },
+  "grasp_offsets": {
+    "_note": "per-class vertical offset (steps) applied to the height joint(s) at grasp; calibrate per object",
+    "box": {},
+    "bottle": { "2": -90 },
+    "cup": { "2": -40 }
+  },
+  "home": { "1": 2048, "2": 2048, "3": 2048, "4": 2048, "5": 2048, "6": 2048, "7": 2048 },
+  "drop_zone": {
+    "hover": { "1": 1600, "2": 1850, "3": 2100, "4": 2000, "5": 2048, "6": 2048, "7": 2048 },
+    "grasp": { "1": 1600, "2": 2000, "3": 2250, "4": 2000, "5": 2048, "6": 2048, "7": 2048 }
+  },
+  "nudge": { "default_step_px": 25 },
+  "grid": [
+    { "id": "p0", "pixel": [120, 90],  "grasp": {"1":1500,"2":2050,"3":2450,"4":2000,"5":2048,"6":2048,"7":2048}, "hover_delta": {"2":-160,"3":110} },
+    { "id": "p1", "pixel": [320, 95],  "grasp": {"1":2048,"2":2050,"3":2450,"4":2000,"5":2048,"6":2048,"7":2048}, "hover_delta": {"2":-160,"3":110} },
+    { "id": "p2", "pixel": [520, 90],  "grasp": {"1":2580,"2":2050,"3":2450,"4":2000,"5":2048,"6":2048,"7":2048}, "hover_delta": {"2":-160,"3":110} },
+    { "id": "p3", "pixel": [120, 320], "grasp": {"1":1500,"2":1850,"3":2150,"4":2000,"5":2048,"6":2048,"7":2048}, "hover_delta": {"2":-160,"3":110} },
+    { "id": "p4", "pixel": [320, 325], "grasp": {"1":2048,"2":1850,"3":2150,"4":2000,"5":2048,"6":2048,"7":2048}, "hover_delta": {"2":-160,"3":110} },
+    { "id": "p5", "pixel": [520, 320], "grasp": {"1":2580,"2":1850,"3":2150,"4":2000,"5":2048,"6":2048,"7":2048}, "hover_delta": {"2":-160,"3":110} }
+  ]
+}

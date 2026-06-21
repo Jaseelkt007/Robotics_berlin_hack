@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import os
 import sys
+import asyncio
 import logging
 
 # make sibling modules importable regardless of cwd (dir is NOT named "mcp" to avoid shadowing the SDK)
@@ -35,6 +36,8 @@ from mcp.server.fastmcp import FastMCP, Image  # type: ignore
 
 from backend import MockBackend, LiveBackend
 from safety import clamp_targets
+from gridmap import GridMap, load_waypoints, default_waypoints_path
+import overlay
 
 logging.basicConfig(level=logging.INFO)
 log = logging.getLogger("station-mcp")
@@ -56,9 +59,25 @@ backend = (
 )
 log.info("Backend: %s", "MOCK" if USE_MOCK else f"LIVE ({STATION_HOST}:{STATION_PORT})")
 
-GRIPPER_ID = 8
-GRIPPER_OPEN = 1200
-GRIPPER_CLOSED = 2400
+# ---- waypoints: the taught pixel->joint grid (reliable track). None => grid tools report uncalibrated.
+WAYPOINTS_PATH = default_waypoints_path()
+_wp = load_waypoints(WAYPOINTS_PATH)
+_grid = GridMap(_wp) if _wp else None
+if _grid and _grid.ready:
+    log.info("waypoints: %s (%d grid points)", WAYPOINTS_PATH, len(_grid.grid_pixels()))
+else:
+    log.info("waypoints: none usable at %s — grid tools report not_calibrated", WAYPOINTS_PATH)
+
+# Gripper constants come from waypoints when calibrated, else the placeholders below.
+_g = (_wp or {}).get("gripper", {})
+GRIPPER_ID = int(_g.get("id", 8))
+GRIPPER_OPEN = int(_g.get("open_step", 1200))
+GRIPPER_CLOSED = int(_g.get("closed_step", 2400))
+GRASP_CURRENT_THRESHOLD_MA = int(_g.get("grasp_current_threshold_ma", 250))
+
+# Last commanded pixel/height, so nudge() can step relative to the current placement.
+_last_pixel: tuple[float, float] | None = None
+_last_height: str = "hover"
 
 mcp = FastMCP("normacore-station")
 _connected = False
@@ -79,12 +98,43 @@ async def _current_ranges() -> dict[int, tuple[int, int]]:
         return {}
 
 
+async def _do_move_to_pixel(px: float, py: float, height: str, object_class: str = "") -> dict:
+    """Shared core for move_to_pixel / nudge / grid_selftest: interpolate the grid and send."""
+    global _last_pixel, _last_height
+    if _grid is None or not _grid.ready:
+        return {"ok": False, "reason": "not_calibrated"}
+    await _ensure()
+    try:
+        joints, extrapolated = _grid.interp(px, py, height)
+    except ValueError as e:
+        return {"ok": False, "reason": str(e)}
+    if height == "grasp" and object_class:  # per-object-class grasp-height offset
+        for mid, d in _grid.grasp_offset(object_class).items():
+            joints[mid] = joints.get(mid, 0) + d
+    targets = clamp_targets(joints, await _current_ranges())
+    ok = await backend.send_joint_targets(targets)
+    _last_pixel, _last_height = (px, py), height
+    return {"ok": ok, "sent": targets, "px": px, "py": py, "height": height,
+            "object_class": object_class or None, "extrapolated": extrapolated}
+
+
 # ----------------------------- tools -----------------------------
 @mcp.tool()
-async def look(camera: str = "top") -> Image:
-    """Return the latest camera frame as an image. `camera`: 'top' (overhead) or 'wrist'."""
+async def look(camera: str = "top", grid: bool = False) -> Image:
+    """Return the latest camera frame as an image.
+
+    `camera`: 'top' (overhead — use to LOCATE objects) or 'wrist' (close-up — use to CONFIRM the
+    object is between the jaws / is held). `grid=True` overlays a labelled pixel grid on the TOP
+    frame so you can read an object's (x,y) pixel against the gridlines — pass that pixel to
+    move_to_pixel. (Overlay applies to the top frame only.)
+    """
     await _ensure()
     jpeg = await backend.get_frame(camera)
+    if grid and camera == "top":
+        try:
+            jpeg = overlay.draw_grid(jpeg)
+        except Exception as e:
+            log.warning("grid overlay failed: %s", e)
     return Image(data=jpeg, format="jpeg")
 
 
@@ -129,11 +179,14 @@ async def move_to(x: float, y: float, z: float) -> dict:
 
 @mcp.tool()
 async def grasp() -> dict:
-    """Close the gripper (clamped to calibrated range)."""
+    """Close the gripper and verify a hold from motor feedback.
+
+    Returns `holding` (True/False) plus `current_ma`/`position`. `holding=True` means the jaws
+    stalled short of fully closed with elevated current — something is between them. If False, open
+    and retry the approach (the object is still where it was).
+    """
     await _ensure()
-    targets = clamp_targets({GRIPPER_ID: GRIPPER_CLOSED}, await _current_ranges())
-    ok = await backend.send_joint_targets(targets)
-    return {"ok": ok, "sent": targets}
+    return await backend.grasp_with_verify(GRIPPER_CLOSED, GRIPPER_OPEN, GRASP_CURRENT_THRESHOLD_MA, GRIPPER_ID)
 
 
 @mcp.tool()
@@ -147,9 +200,74 @@ async def release() -> dict:
 
 @mcp.tool()
 async def home() -> dict:
-    """Return the arm to its home/rest pose."""
+    """Return the arm to its home/rest pose (taught pose if calibrated, else range midpoint)."""
     await _ensure()
-    return {"ok": await backend.home()}
+    pose = _grid.home() if (_grid and _grid.ready) else None
+    return {"ok": await backend.home(pose or None)}
+
+
+# ----------------------------- reliable (grid) track -----------------------------
+@mcp.tool()
+async def move_to_pixel(px: float, py: float, height: str = "hover", object_class: str = "") -> dict:
+    """Move the gripper to the table point under TOP-camera pixel (px, py).
+
+    Read (px, py) from `look("top", grid=True)`. `height`: 'hover' (safe approach height — always go
+    here first) or 'grasp' (object-grasp height — descend only when aligned, gripper already open).
+    `object_class` (box|bottle|cup) applies that object's taught grasp-height offset at 'grasp'.
+    Interpolates the taught pixel->joint grid (no IK). `extrapolated:true` means (px, py) is outside
+    the taught area — ask the person to move the object inward rather than trusting the result.
+    """
+    return await _do_move_to_pixel(px, py, height, object_class)
+
+
+@mcp.tool()
+async def nudge(direction: str, step_px: int = 0) -> dict:
+    """Fine-align by stepping the target a little in the TOP-camera image frame, then re-place.
+
+    `direction`: up|down|left|right as seen in the top frame (up = toward smaller y). Use after
+    move_to_pixel: look("top"), judge which way the gripper must shift to sit over the object, nudge,
+    repeat (~1-3 times). `step_px` overrides the default step. Requires a prior move_to_pixel.
+    """
+    if _grid is None or not _grid.ready:
+        return {"ok": False, "reason": "not_calibrated"}
+    if _last_pixel is None:
+        return {"ok": False, "reason": "call move_to_pixel first"}
+    step = int(step_px) if step_px else _grid.nudge_step_px()
+    delta = {"left": (-step, 0), "right": (step, 0), "up": (0, -step), "down": (0, step)}.get(direction)
+    if delta is None:
+        return {"ok": False, "reason": f"direction must be up/down/left/right, got {direction!r}"}
+    return await _do_move_to_pixel(_last_pixel[0] + delta[0], _last_pixel[1] + delta[1], _last_height)
+
+
+@mcp.tool()
+async def deliver() -> dict:
+    """Move to the taught drop-zone (hover height). Call release() afterward to let go."""
+    if _grid is None or not _grid.ready:
+        return {"ok": False, "reason": "not_calibrated"}
+    await _ensure()
+    dz = _grid.drop_zone("hover")
+    if not dz:
+        return {"ok": False, "reason": "no drop_zone taught"}
+    targets = clamp_targets(dz, await _current_ranges())
+    return {"ok": await backend.send_joint_targets(targets), "sent": targets}
+
+
+@mcp.tool()
+async def grid_selftest(height: str = "hover", dwell_s: float = 1.5) -> dict:
+    """Visit every taught grid pixel in turn so a human can confirm the grid is correct.
+
+    Run this (and watch the arm) BEFORE grasping any object — it catches bad pixel clicks or a
+    swapped axis immediately. Returns the per-point send results.
+    """
+    if _grid is None or not _grid.ready:
+        return {"ok": False, "reason": "not_calibrated"}
+    await _ensure()
+    visited = []
+    for (sx, sy) in _grid.grid_pixels():
+        r = await _do_move_to_pixel(sx, sy, height)
+        visited.append({"px": sx, "py": sy, "ok": r.get("ok")})
+        await asyncio.sleep(dwell_s)
+    return {"ok": True, "height": height, "visited": visited}
 
 
 if __name__ == "__main__":
