@@ -22,6 +22,7 @@ import io
 import json
 import os
 import sys
+import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -106,7 +107,9 @@ async def capture() -> None:
 
     grid, frame_w, frame_h = [], 0, 0
     for i in range(n):
+        t0 = time.monotonic()
         await _ainput(f"\n[{i + 1}/{n}] Hand-pose the gripper TIP at GRASP height over a table spot, hold steady, ENTER...")
+        waited = time.monotonic() - t0
         st = await backend.get_state()
         grasp = _arm_joints(st, ARM_IDS)
         jpeg = await backend.get_frame("top")
@@ -121,14 +124,14 @@ async def capture() -> None:
         st2 = await backend.get_state()
         hover = _arm_joints(st2, ARM_IDS)
         hover_delta = {k: hover[k] - grasp[k] for k in grasp}
-        dup = grid and grid[-1]["grasp"] == grasp
+        dup = i > 0 and len(grid) > 0 and grid[-1]["grasp"] == grasp
         grid.append({"id": f"p{i}", "pixel": None, "frame": f"calib_frames/{fname}",
                      "grasp": grasp, "hover_delta": hover_delta})
-        if dup:
-            print("        captured.  !! WARNING: IDENTICAL to the previous point — state looks stale. "
-                  "Stop (Ctrl+C) and tell me; don't keep going.")
-        else:
-            print("        captured.")
+        vals = [grasp[str(k)] for k in range(1, 8)]
+        warn = "  !! IDENTICAL to previous" if dup else ""
+        rxc = getattr(backend, "_rx_count", 0)
+        buses = list(backend._motor_state.keys())
+        print(f"        captured  joints={vals}  (waited {waited:.1f}s)  rx_count={rxc}  buses={buses}{warn}")
 
     await _ainput("\nHand-pose the arm at the HOME / transit pose, ENTER...")
     home = _arm_joints(await backend.get_state(), ARM_IDS)

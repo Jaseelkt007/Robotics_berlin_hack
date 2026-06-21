@@ -332,6 +332,7 @@ class LiveBackend(StationBackend):
                     slot[mid].current_ma = current
                 else:
                     slot[mid] = MotorState(mid, position, current, 0, _MAX_STEP)
+                self._rx_count = getattr(self, "_rx_count", 0) + 1
             except Exception as e:
                 log.debug("rx cache error: %s", e)
 
