@@ -87,8 +87,8 @@ async def info() -> None:
 
 async def capture() -> None:
     backend = await _connect()
-    print("Releasing torque on the arm so you can hand-pose it ...")
-    await backend.set_torque(False, ARM_IDS)
+    print("Releasing torque on ALL motors (incl. the gripper) so you can hand-pose it ...")
+    await backend.set_torque(False)  # ALL motors incl. gripper (motor 8) — ARM_IDS-only left it locked
 
     os.makedirs(FRAMES_DIR, exist_ok=True)
     n = int(input("How many grid points? [12]: ").strip() or "12")
@@ -136,9 +136,10 @@ async def capture() -> None:
             cur = next((m.current_ma for m in (await backend.get_state()).motors if m.id == GRIPPER_ID), 0)
             threshold = max(80, int(cur * 0.6))
             print(f"        held current {cur} mA -> threshold {threshold} mA")
-            await backend.set_torque(False, [GRIPPER_ID])
         except Exception as e:
             print("        skipped current measurement:", e)
+        finally:
+            await backend.set_torque(False, [GRIPPER_ID])  # always leave the gripper openable
 
     wp = {
         "version": 1,
@@ -155,6 +156,7 @@ async def capture() -> None:
     }
     with open(PARTIAL, "w") as f:
         json.dump(wp, f, indent=2)
+    await backend.set_torque(False)  # leave every motor limp/openable when capture ends
     print(f"\nWrote {PARTIAL} ({len(grid)} points) and frames in {FRAMES_DIR}/")
     print("Next:  python calibrate.py click")
 
