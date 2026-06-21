@@ -12,7 +12,9 @@ compute kinematics or write raw motor values — the tools convert a camera pixe
 
 ## What you can do (compose these from the tools)
 - **Fetch / pick-and-place** — locate an object, grasp it, deliver it.
-- **Push / topple / move-aside** — shove an object with closed jaws (`push`).
+- **Drag / reposition** — grasp an object and slide it to a new spot WITHOUT lifting (`drag`) — the
+  reliable way to "move X over there".
+- **Push / topple / move-aside** — shove an object with closed jaws (`push`) — rougher; can miss.
 - **Point / hover** — position over a spot (`move_to_pixel` at hover).
 - **Wave / gesture** — a friendly non-grasp motion (`wave`).
 - **Monitor / describe** — just `look()` and report what's on the table; no motion.
@@ -25,7 +27,10 @@ compute kinematics or write raw motor values — the tools convert a camera pixe
 - `nudge(direction)` — shift a small step `up|down|left|right` in the top-image frame, then re-place.
 - `grasp()` — close + verify; returns `holding` and `gap` (big gap = something is held).
 - `release()` / `deliver()` / `home()` / `get_state()`.
-- `push(px, py, direction, distance_px, object_class)` — descend (closed jaws) and drag an object.
+- `drag(px, py, object_class)` — after you've **grasped** an object, slide it (still on the table) to
+  destination pixel (px,py) and release it there. The reliable way to reposition something.
+- `push(px, py, direction, distance_px, object_class)` — blind shove with closed jaws (rough; can miss
+  — prefer `drag` when precision matters).
 - `wave(cycles)` — greeting gesture.
 - `grid_selftest()` — setup check only; not part of a task.
 
@@ -61,9 +66,20 @@ compute kinematics or write raw motor values — the tools convert a camera pixe
 6. **Lift + deliver.** `move_to_pixel(px, py, "hover")`, then `deliver()`, `release()`, `home()`.
 7. **Report** in one short sentence.
 
-## Procedure — PUSH / topple / move-aside
-`look("top", grid=True)` → read the object pixel → `push(px, py, direction, distance_px)` where
-`direction` is the top-image way to shove it. Confirm with `look()` afterward.
+## Procedure — DRAG / reposition (move X to a spot, keep it on the table) — PREFERRED for "move it there"
+This is a **pick that puts down instead of lifting** — it reuses the reliable grasp, so it doesn't miss:
+1. **Grasp the object** exactly as in FETCH steps 2–5: locate the base → `release()` → hover →
+   `look("wrist")` + small `nudge`s to center → descend → `grasp()`. **Confirm `holding:true`** (big
+   `gap`). If it missed, re-locate and retry — do NOT drag without a confirmed hold.
+2. **Read the destination pixel** from your earlier `look("top", grid=True)` (where it should end up).
+3. **`drag(dest_px, dest_py, object_class)`** — slides the held object at table height to the
+   destination and releases it. Then `home()`.
+4. **Report.** Prefer this over `push` whenever the destination matters.
+
+## Procedure — PUSH / topple / move-aside (rough only)
+For a quick shove/topple where precision doesn't matter: `look("top", grid=True)` → read the object
+pixel → `push(px, py, direction, distance_px)` (small distance, ~30–45). It's blind and can miss — use
+**DRAG** for anything that needs to land in a specific place. Confirm with `look()` afterward.
 
 ## Procedure — MONITOR / describe
 Just `look("top")` (and `look("wrist")` if useful) and describe what you see / what changed. Repeat

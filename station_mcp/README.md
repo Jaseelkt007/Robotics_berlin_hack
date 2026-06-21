@@ -25,7 +25,8 @@ Original two-stage plan: docs/10–11.
 | `nudge(direction)` | small `up\|down\|left\|right` step in the top-image frame. |
 | `grasp()` / `release()` | close + verify (`holding`/`gap`) / open. |
 | `deliver()` / `home()` / `get_state()` | taught drop-zone / taught rest pose / live motor state. |
-| `push(px,py,direction,distance_px)` | descend (closed jaws) and shove an object (topple/move-aside). |
+| `drag(px,py,object_class)` | after grasping, slide the held object (on the table, no lift) to a destination pixel and release — reliable repositioning. |
+| `push(px,py,direction,distance_px)` | blind shove with closed jaws (rough; can miss — prefer `drag`). |
 | `wave(cycles)` / `grid_selftest()` | greeting gesture / setup check (visit all taught points). |
 | `run_vla_task` / `locate` / `move_to` | original SmolVLA/ArUco/IK stubs — left in place, not the path. |
 

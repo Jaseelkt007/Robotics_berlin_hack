@@ -78,6 +78,10 @@ async def main():
     assert r["ok"] and r["cycles"] == 2, r
     print("wave():", r)
 
+    r = await server.drag(300, 240, "box")
+    assert r["ok"] and r["to"] == [300, 240] and r["released"], r
+    print("drag():", {k: r[k] for k in ("ok", "to", "released")})
+
     print("\nALL SERVER MOCK TESTS PASSED")
 
 

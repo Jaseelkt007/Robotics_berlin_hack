@@ -39,7 +39,8 @@ git-ignored).
 | `nudge(direction)` | small step `up\|down\|left\|right` in the top-image frame; re-place. |
 | `grasp()` | close + verify; returns `holding` + `gap` (big gap ⇒ object held). |
 | `release()` / `deliver()` / `home()` / `get_state()` | open / go to taught drop-zone / taught rest pose / live motor state. |
-| `push(px,py,direction,distance_px)` | descend with closed jaws and shove an object (topple/move-aside). |
+| `drag(px,py,object_class)` | after grasping, slide the held object (on the table, no lift) to a destination pixel and release — reliable repositioning. |
+| `push(px,py,direction,distance_px)` | blind shove with closed jaws (rough; can miss — prefer `drag`). |
 | `wave(cycles)` | greeting gesture. |
 | `grid_selftest()` | visit every taught point — **setup check only**, run before grasping. |
 | `run_vla_task` / `locate` / `move_to` | original SmolVLA/ArUco/IK stubs — left in place, not the path. |

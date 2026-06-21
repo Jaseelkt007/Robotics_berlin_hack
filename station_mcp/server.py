@@ -337,5 +337,24 @@ async def wave(cycles: int = 3) -> dict:
     return {"ok": True, "cycles": cycles, "wrist_joint": wj}
 
 
+@mcp.tool()
+async def drag(px: float, py: float, object_class: str = "") -> dict:
+    """Move an object you have ALREADY grasped to top-camera pixel (px, py) while keeping it ON the
+    table (a drag, NOT a lift), then release it there.
+
+    Use for "drag/move X to <spot>, don't pick it up". Flow: locate → hover → align on the wrist cam →
+    `grasp()` and confirm `holding:true` → THEN `drag(px, py)`. This slides the held object at grasp
+    height to the destination and opens the jaws to leave it there. (Unlike `push`, it can't miss — it
+    moves an object it's already holding — so it's the reliable way to reposition something.)
+    """
+    if _grid is None or not _grid.ready:
+        return {"ok": False, "reason": "not_calibrated"}
+    await _ensure()
+    r = await _do_move_to_pixel(px, py, "grasp", object_class)  # slide the held object at table height
+    await backend.send_joint_targets(clamp_targets({GRIPPER_ID: GRIPPER_OPEN}, await _current_ranges()))
+    await asyncio.sleep(0.8)
+    return {"ok": r.get("ok"), "to": [px, py], "released": True, "extrapolated": r.get("extrapolated")}
+
+
 if __name__ == "__main__":
     mcp.run()  # stdio transport (for `claude mcp add`)
