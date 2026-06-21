@@ -98,6 +98,23 @@ async def _current_ranges() -> dict[int, tuple[int, int]]:
         return {}
 
 
+async def _settle(timeout: float = 5.0) -> None:
+    """Block until the arm stops moving, so a tool returns only after arrival (the brain can then
+    look() at a settled pose, not mid-motion). No-op in mock (state animates and never settles)."""
+    if USE_MOCK:
+        return
+    prev = None
+    for _ in range(int(timeout / 0.2)):
+        await asyncio.sleep(0.2)
+        try:
+            pos = {m.id: m.position for m in (await backend.get_state()).motors}
+        except Exception:
+            return
+        if prev is not None and max((abs(pos[k] - prev.get(k, pos[k])) for k in pos), default=0) < 6:
+            return
+        prev = pos
+
+
 async def _do_move_to_pixel(px: float, py: float, height: str, object_class: str = "") -> dict:
     """Shared core for move_to_pixel / nudge / grid_selftest: interpolate the grid and send."""
     global _last_pixel, _last_height
@@ -113,6 +130,7 @@ async def _do_move_to_pixel(px: float, py: float, height: str, object_class: str
             joints[mid] = joints.get(mid, 0) + d
     targets = clamp_targets(joints, await _current_ranges())
     ok = await backend.send_joint_targets(targets)
+    await _settle()  # return only once the arm has arrived, so the next look() isn't mid-motion
     _last_pixel, _last_height = (px, py), height
     return {"ok": ok, "sent": targets, "px": px, "py": py, "height": height,
             "object_class": object_class or None, "extrapolated": extrapolated}
@@ -268,6 +286,55 @@ async def grid_selftest(height: str = "hover", dwell_s: float = 1.5) -> dict:
         visited.append({"px": sx, "py": sy, "ok": r.get("ok")})
         await asyncio.sleep(dwell_s)
     return {"ok": True, "height": height, "visited": visited}
+
+
+@mcp.tool()
+async def push(px: float, py: float, direction: str, distance_px: int = 45, object_class: str = "") -> dict:
+    """Push / topple / shove an object instead of picking it.
+
+    Closes the jaws (to use the gripper as a blunt tool), descends onto the object at top-camera pixel
+    (px, py), then drags `distance_px` in the given TOP-image direction (up|down|left|right) and lifts.
+    Use to move something aside, knock it over, or slide it. Read (px, py) from look("top", grid=True).
+    """
+    if _grid is None or not _grid.ready:
+        return {"ok": False, "reason": "not_calibrated"}
+    delta = {"left": (-distance_px, 0), "right": (distance_px, 0),
+             "up": (0, -distance_px), "down": (0, distance_px)}.get(direction)
+    if delta is None:
+        return {"ok": False, "reason": f"direction must be up/down/left/right, got {direction!r}"}
+    await _ensure()
+    await backend.send_joint_targets(clamp_targets({GRIPPER_ID: GRIPPER_CLOSED}, await _current_ranges()))
+    await _do_move_to_pixel(px, py, "hover")
+    await _do_move_to_pixel(px, py, "grasp", object_class)
+    await _do_move_to_pixel(px + delta[0], py + delta[1], "grasp", object_class)  # drag
+    r = await _do_move_to_pixel(px + delta[0], py + delta[1], "hover")            # lift clear
+    return {"ok": r.get("ok"), "from": [px, py], "to": [px + delta[0], py + delta[1]],
+            "direction": direction, "extrapolated": r.get("extrapolated")}
+
+
+@mcp.tool()
+async def wave(cycles: int = 3) -> dict:
+    """Wave the arm in greeting: go home, then oscillate the wrist a few times, return home.
+
+    A friendly non-grasp gesture (e.g. when greeting or acknowledging). No object needed.
+    """
+    await _ensure()
+    ranges = await _current_ranges()
+    home = _grid.home() if (_grid and _grid.ready) else None
+    if home:
+        await backend.send_joint_targets(clamp_targets(home, ranges))
+        await asyncio.sleep(1.2)
+    base = home or {m.id: m.position for m in (await backend.get_state()).motors}
+    wj = 6 if 6 in base else max(base)  # wrist joint (fallback: highest-id arm joint)
+    if wj not in base:
+        return {"ok": False, "reason": "no wrist joint to wave"}
+    for _ in range(max(1, cycles)):
+        await backend.send_joint_targets(clamp_targets({wj: base[wj] + 250}, ranges))
+        await asyncio.sleep(0.4)
+        await backend.send_joint_targets(clamp_targets({wj: base[wj] - 250}, ranges))
+        await asyncio.sleep(0.4)
+    await backend.send_joint_targets(clamp_targets({wj: base[wj]}, ranges))
+    return {"ok": True, "cycles": cycles, "wrist_joint": wj}
 
 
 if __name__ == "__main__":

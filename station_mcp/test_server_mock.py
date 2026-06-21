@@ -70,6 +70,14 @@ async def main():
     assert r["extrapolated"] is True, r
     print("move_to_pixel outside hull: extrapolated =", r["extrapolated"])
 
+    r = await server.push(300, 240, "left", 40)
+    assert r["ok"] and r["to"] == [260, 240], r
+    print("push(left): ", {k: r[k] for k in ("ok", "from", "to")})
+
+    r = await server.wave(2)
+    assert r["ok"] and r["cycles"] == 2, r
+    print("wave():", r)
+
     print("\nALL SERVER MOCK TESTS PASSED")
 
 

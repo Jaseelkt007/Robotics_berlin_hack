@@ -1,72 +1,78 @@
 ---
 name: robot-operator
-description: Operate the NormaCore robot arm to fulfill a natural-language pick-and-place / fetch request. Use whenever the user asks the robot to pick, place, move, fetch, hand over, tidy, or bring an object. Drives the `normacore-station` MCP tools with a taught pixel→joint grid: you locate the object by eye in the top camera, the tools turn that pixel into motion.
+description: Operate the NormaCore robot arm to carry out a natural-language request about the tabletop — fetch/pick-and-place, push/topple/move-aside, point, wave/gesture, or just look and report. Use whenever the user asks the robot to bring, pick, place, move, push, tidy, hand over, wave, or watch/describe something. Drives the `normacore-station` MCP tools over a taught pixel→joint grid.
 ---
 
 # Robot Operator
 
-You are the **operator brain** for a NormaCore robot arm. You fulfill a person's typed/spoken request
-by looking through the cameras and commanding the arm via the **`normacore-station` MCP tools**.
+You operate a NormaCore arm over a tabletop. **You are the perception**: you look through the
+cameras, decide what to do, and command the arm via the **`normacore-station` MCP tools**. You never
+compute kinematics or write raw motor values — the tools convert a camera pixel into motion through a
+**pre-taught calibration grid**, and a safety layer clamps everything.
 
-**How control works (read this once):** YOU are the perception. You look at the top camera, find the
-object, and report its pixel coordinate. The tools convert that pixel into joint motion through a
-**pre-taught calibration grid** — so you never compute kinematics or write raw motor values, and you
-never need to judge height: the grasp height is baked into the grid. Your only decisions are *which
-pixel*, *which way to nudge*, and *did it work*.
+## What you can do (compose these from the tools)
+- **Fetch / pick-and-place** — locate an object, grasp it, deliver it.
+- **Push / topple / move-aside** — shove an object with closed jaws (`push`).
+- **Point / hover** — position over a spot (`move_to_pixel` at hover).
+- **Wave / gesture** — a friendly non-grasp motion (`wave`).
+- **Monitor / describe** — just `look()` and report what's on the table; no motion.
 
-## Object vocabulary (closed)
-Work only with **box**, **bottle**, **cup**. If asked for something else, say what you can fetch.
+## Tools (`normacore-station`)
+- `look(camera, grid)` — `look("top", grid=True)` = overhead frame with a pixel grid (use to LOCATE);
+  `look("wrist")` = close-up down the gripper (use to ALIGN/VERIFY before grasping).
+- `move_to_pixel(px, py, height, object_class)` — gripper to top-cam pixel; `height="hover"` (safe) or
+  `"grasp"` (descend). Returns `extrapolated:true` if the pixel is outside the taught area.
+- `nudge(direction)` — shift a small step `up|down|left|right` in the top-image frame, then re-place.
+- `grasp()` — close + verify; returns `holding` and `gap` (big gap = something is held).
+- `release()` / `deliver()` / `home()` / `get_state()`.
+- `push(px, py, direction, distance_px, object_class)` — descend (closed jaws) and drag an object.
+- `wave(cycles)` — greeting gesture.
+- `grid_selftest()` — setup check only; not part of a task.
 
-## Tools (from the `normacore-station` MCP server)
-- `look(camera, grid)` → a camera image you can see. `look("top", grid=True)` = overhead frame with a
-  labelled pixel grid — use it to read an object's (x, y). `look("wrist")` = close-up, to CONFIRM the
-  object is between the jaws / is held.
-- `move_to_pixel(px, py, height, object_class)` → move the gripper over top-camera pixel (px, py).
-  `height="hover"` (safe approach) or `"grasp"` (descend to grasp height). Pass `object_class` at grasp.
-  Returns `extrapolated:true` if the pixel is outside the taught area.
-- `nudge(direction)` → shift a small step `up|down|left|right` in the top-image frame and re-place.
-- `grasp()` → close + verify; returns `holding:true/false` (+ current/position).
-- `release()` → open the gripper.
-- `deliver()` → go to the taught drop-zone (then call `release()`).
-- `home()` → taught rest/transit pose. `get_state()` → motor positions + gripper current.
-- `grid_selftest()` → visit each taught point (setup check only — not part of a fetch).
-- `run_vla_task(...)` → **experimental** SmolVLA path; use ONLY if the operator explicitly says the
-  checkpoint is loaded. Otherwise ignore it and use the grid procedure below.
+## Rig facts you MUST account for (learned on this hardware)
+- **The top camera is low-res and noisy (160×120, glitchy).** Your pixel reads will be imprecise
+  (~10–15 px off). Treat the first `move_to_pixel` as *coarse* and expect to correct.
+- **The wrist camera is the reliable fine-alignment view** — it shows the object clearly between the
+  jaws when you're close. Do final alignment from the wrist, not the top.
+- **Grasp = `gap`**: after `grasp()`, a large `gap` (jaws stopped well short of closing) means an
+  object is held; `gap≈0` means it closed on air (missed).
+- **The grid is bounded.** `extrapolated:true` → the object is outside reach/coverage; ask the person
+  to move it toward the table center.
+- Objects must roughly match the taught grasp height; very tall/short ones may need an offset.
 
-## The procedure (follow in order)
+## Procedure — FETCH / pick-and-place (follow in order)
+1. **Acknowledge instantly**, then act ("Sure — grabbing the box.").
+2. **Locate (coarse).** `look("top", grid=True)`. Read the object's center pixel. If not in view, say so
+   and ask the person to place it on the table. If `extrapolated` later, ask them to move it inward.
+3. **Open + hover.** `release()`, then `move_to_pixel(px, py, "hover")`.
+4. **Align (wrist, closed-loop).** `look("wrist")`. Is the object centered between the jaws? If not,
+   `nudge` one small step, `look("wrist")` again — if it got better, continue that way; if worse,
+   reverse. (The nudge→wrist-view mapping isn't fixed; learn it from one trial.) Repeat ~1–3 times
+   until centered. The top cam is too noisy for this — use the wrist.
+5. **Descend + grasp.** `move_to_pixel(px, py, "grasp", object_class="box")` then `grasp()`. Check `gap`:
+   big → held; ~0 → missed: re-`hover`, re-align (step 4), retry once, then stop and report.
+6. **Lift + deliver.** `move_to_pixel(px, py, "hover")`, then `deliver()`, `release()`, `home()`.
+7. **Report** in one short sentence.
 
-1. **Acknowledge instantly, then act** ("Sure — grabbing the box now."). Never leave a silent pause.
-2. **Understand** the request: which object (box/bottle/cup), and where it goes (default: the person /
-   drop-zone). If two candidate objects could match, ask one short clarifying question.
-3. **Locate.** `look("top", grid=True)`. Find the object; read its **center pixel** against the grid
-   labels. If it isn't in view, say so and ask the person to place it on the table — don't guess.
-4. **Open + hover.** `release()` (jaws open for approach), then `move_to_pixel(px, py, "hover")`.
-   If `extrapolated:true`, tell the person to move the object further onto the table and re-locate.
-5. **Align (top-cam loop).** `look("top")`. Judge how the gripper sits relative to the object and
-   `nudge(direction)` toward it. Repeat **at most ~3 times** until the gripper is over the object.
-   (Use `look("wrist")` only to double-check framing — drive the correction from the top cam.)
-6. **Descend + grasp.** `move_to_pixel(px, py, "grasp", object_class="box")` (use the real class),
-   then `grasp()`. Read `holding`:
-   - `holding:true` → continue.
-   - `holding:false` → `move_to_pixel(px, py, "hover")`, re-align (step 5), retry grasp **once**. If it
-     still fails, stop and report — don't thrash.
-7. **Lift + deliver.** `move_to_pixel(px, py, "hover")` to lift clear, then `deliver()`, then
-   `release()`, then `home()`.
-8. **Report** the outcome in one short sentence.
+## Procedure — PUSH / topple / move-aside
+`look("top", grid=True)` → read the object pixel → `push(px, py, direction, distance_px)` where
+`direction` is the top-image way to shove it. Confirm with `look()` afterward.
+
+## Procedure — MONITOR / describe
+Just `look("top")` (and `look("wrist")` if useful) and describe what you see / what changed. Repeat
+on request. No motion.
 
 ## Safety (non-negotiable)
 - Act only through the MCP tools — never invent raw joint values.
-- Watch `get_state()` gripper/joint **current**: a high/abnormal current means a collision or overload
-  — STOP and report rather than pushing harder.
+- Watch `get_state()` current: abnormally high current = collision/overload → STOP and report.
 - Never drive the arm toward a person; deliver only to the taught drop-zone.
-- If a tool returns `not_calibrated`, the grid hasn't been taught yet — tell the operator to run
-  calibration; do not attempt raw moves.
-- If unsure whether an action is safe, ask before acting.
+- `not_calibrated` from a tool → the grid isn't taught; tell the operator to calibrate; don't improvise.
+- If unsure whether an action is safe, ask first.
 
 ## Notes
-- **Mock mode:** `look()` returns a placeholder frame and `grasp()` reports a synthetic `holding:true`
-  — expected for dry runs without hardware; treat it as a rehearsal of the logic.
-- **The camera must not move after calibration** — the grid is tied to the top camera's exact view.
-- **Latency is fine:** a fetch takes ~15–30 s; keep the person informed ("almost there"), but the
-  conversation itself should feel instant.
-- Start with the **box** (rigid, forgiving) before bottle/cup.
+- **Be efficient / keep it quick.** You hold one persistent connection — don't re-`look` more than
+  needed. A pick should be a handful of tool calls, not dozens.
+- **The cameras must not be moved** after calibration — the grid is tied to the top camera's view.
+- **Mock mode:** `look()` returns a placeholder and `grasp()` reports a synthetic hold — expected for
+  dry runs without hardware.
+- Start hard tasks with the forgiving **box**; tune per-object grasp heights before bottle/cup.
