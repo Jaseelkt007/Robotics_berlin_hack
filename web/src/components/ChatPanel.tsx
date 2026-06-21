@@ -109,13 +109,13 @@ export default function ChatPanel({ chat }: { chat: ChatState }) {
   };
 
   return (
-    <div className="flex h-full flex-col rounded-xl border border-line bg-white">
+    <div className="flex h-full min-h-0 flex-col rounded-xl border border-line bg-white">
       <div className="flex items-center justify-between border-b border-line px-4 py-3">
         <span className="text-[13px] font-semibold tracking-tightish">Conversation</span>
         <span className="text-[12px] text-faint">watch it think</span>
       </div>
 
-      <div ref={scrollRef} className="scroll-slim flex-1 space-y-3.5 overflow-y-auto px-4 py-4">
+      <div ref={scrollRef} className="scroll-slim min-h-0 flex-1 space-y-3.5 overflow-y-auto px-4 py-4">
         {chat.items.length === 0 ? (
           <div className="flex h-full flex-col items-center justify-center text-center">
             <Brain size={28} className="text-faint" />

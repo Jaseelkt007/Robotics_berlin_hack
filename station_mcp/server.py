@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import os
 import sys
+import json
 import asyncio
 import logging
 
@@ -115,6 +116,18 @@ async def _settle(timeout: float = 5.0) -> None:
         prev = pos
 
 
+def _live_stack_scale() -> float | None:
+    """Re-read stack.lift_scale from waypoints.json on each call so the stacking height can be
+    tuned WITHOUT restarting the brain — edit the number, next stack picks it up. Falls back to
+    the in-memory grid value on any error."""
+    try:
+        with open(WAYPOINTS_PATH) as f:
+            wp = json.load(f)
+        return float(wp.get("stack", {}).get("lift_scale", _grid.stack_lift_scale()))
+    except Exception:
+        return _grid.stack_lift_scale() if _grid else None
+
+
 async def _do_move_to_pixel(px: float, py: float, height: str, object_class: str = "") -> dict:
     """Shared core for move_to_pixel / nudge / grid_selftest: interpolate the grid and send."""
     global _last_pixel, _last_height
@@ -122,7 +135,10 @@ async def _do_move_to_pixel(px: float, py: float, height: str, object_class: str
         return {"ok": False, "reason": "not_calibrated"}
     await _ensure()
     try:
-        joints, extrapolated = _grid.interp(px, py, height)
+        if height == "stack":
+            joints, extrapolated = _grid.interp(px, py, "stack", lift_scale=_live_stack_scale())
+        else:
+            joints, extrapolated = _grid.interp(px, py, height)
     except ValueError as e:
         return {"ok": False, "reason": str(e)}
     if height == "grasp" and object_class:  # per-object-class grasp-height offset
@@ -354,6 +370,35 @@ async def drag(px: float, py: float, object_class: str = "") -> dict:
     await backend.send_joint_targets(clamp_targets({GRIPPER_ID: GRIPPER_OPEN}, await _current_ranges()))
     await asyncio.sleep(0.8)
     return {"ok": r.get("ok"), "to": [px, py], "released": True, "extrapolated": r.get("extrapolated")}
+
+
+@mcp.tool()
+async def stack_on(px: float, py: float, object_class: str = "") -> dict:
+    """Place an object you have ALREADY grasped ON TOP of the box at top-camera pixel (px, py).
+
+    Use for "stack X on Y / put X on top of Y". Flow: pick X exactly like a normal grasp and confirm
+    `holding:true` FIRST, then `stack_on(px, py)` where (px,py) is the TARGET box's pixel. This raises
+    the held object to stacking height over that pixel (grid pose + `stack.lift_scale` x hover_delta),
+    opens the jaws to set it down, then lifts straight up to clear the new stack. Call `home()` after.
+
+    Height is tuned per rig via `stack.lift_scale` in waypoints.json (editable live — no restart):
+    raise it if the box clips the target on the way in, lower it if it drops from too high.
+    """
+    if _grid is None or not _grid.ready:
+        return {"ok": False, "reason": "not_calibrated"}
+    await _ensure()
+    r = await _do_move_to_pixel(px, py, "stack", object_class)  # raise + move over the target box
+    await backend.send_joint_targets(clamp_targets({GRIPPER_ID: GRIPPER_OPEN}, await _current_ranges()))
+    await asyncio.sleep(0.6)
+    # rise a little higher straight up so leaving doesn't knock the fresh stack over
+    try:
+        clear, _ = _grid.interp(px, py, "stack", lift_scale=(_live_stack_scale() or 2.5) + 1.2)
+        await backend.send_joint_targets(clamp_targets(clear, await _current_ranges()))
+        await _settle()
+    except Exception:
+        pass
+    return {"ok": r.get("ok"), "on": [px, py], "released": True,
+            "extrapolated": r.get("extrapolated"), "lift_scale": _live_stack_scale()}
 
 
 if __name__ == "__main__":

@@ -138,8 +138,18 @@ class GridMap:
                 wsum[mid] = wsum.get(mid, 0.0) + w
         return {mid: int(round(acc[mid] / wsum[mid])) for mid in acc if wsum[mid] > 0}
 
-    def interp(self, px: float, py: float, height: str = "hover") -> tuple[dict[int, int], bool]:
-        """Joint vector at pixel (px,py). height in {"hover","grasp"}.
+    def interp(
+        self, px: float, py: float, height: str = "hover", lift_scale: float | None = None
+    ) -> tuple[dict[int, int], bool]:
+        """Joint vector at pixel (px,py). height in {"hover","grasp","stack"}.
+
+        - "grasp": the taught table-height grasp pose.
+        - "hover": grasp + 1x hover_delta (the ~3 cm taught lift).
+        - "stack": grasp + lift_scale x hover_delta — raises the gripper to set a
+          HELD object on TOP of whatever sits at (px,py). Reuses each point's
+          taught hover_delta (its local "up" direction), so the lift stays closer
+          to vertical than a blind global joint push. `lift_scale` overrides the
+          taught `stack.lift_scale` (used for live height tuning).
 
         Returns (joints, extrapolated). `extrapolated` is True when the query
         lies outside the convex hull of taught points (the result is still
@@ -147,8 +157,8 @@ class GridMap:
         """
         if not self.ready:
             raise ValueError("grid not calibrated — need >=3 pixel-clicked points (run calibrate.py)")
-        if height not in ("hover", "grasp"):
-            raise ValueError(f"height must be 'hover' or 'grasp', got {height!r}")
+        if height not in ("hover", "grasp", "stack"):
+            raise ValueError(f"height must be 'hover', 'grasp' or 'stack', got {height!r}")
 
         weights = self._weights(px, py)
         grasp = self._blend(self._grasp, weights)
@@ -156,10 +166,18 @@ class GridMap:
             joints = grasp
         else:
             delta = self._blend(self._hover_delta, weights)
-            joints = {mid: grasp[mid] + delta.get(mid, 0) for mid in grasp}
+            scale = 1.0 if height == "hover" else (
+                self.stack_lift_scale() if lift_scale is None else float(lift_scale))
+            joints = {mid: grasp[mid] + int(round(scale * delta.get(mid, 0))) for mid in grasp}
 
         extrapolated = not _point_in_hull(px, py, self._hull)
         return joints, extrapolated
+
+    def stack_lift_scale(self) -> float:
+        """Multiplier on hover_delta for the 'stack' (place-on-top) height. Tunable per rig
+        via `stack.lift_scale` in waypoints.json — raise it until the held box clears the
+        target box's top, lower it if it drops from too high."""
+        return float(self.wp.get("stack", {}).get("lift_scale", 2.5))
 
     # -- taught fixed poses / params -----------------------------------------
     def grasp_offset(self, object_class: str | None) -> dict[int, int]:

@@ -31,6 +31,44 @@ body {
   letter-spacing: -0.02em;
 }
 
+/* slow rotation for the voice-mode orb's "thinking" state */
+@keyframes spin-slow {
+  to {
+    transform: rotate(360deg);
+  }
+}
+.animate-spin-slow {
+  animation: spin-slow 3s linear infinite;
+}
+
+/* equalizer bars — voice agent "speaking" / "listening" animation */
+@keyframes eq {
+  0%,
+  100% {
+    transform: scaleY(0.25);
+  }
+  50% {
+    transform: scaleY(1);
+  }
+}
+.animate-eq {
+  animation: eq 0.7s ease-in-out infinite;
+}
+
+/* gentle breathing scale for the idle orb */
+@keyframes breathe {
+  0%,
+  100% {
+    transform: scale(1);
+  }
+  50% {
+    transform: scale(1.05);
+  }
+}
+.animate-breathe {
+  animation: breathe 3.5s ease-in-out infinite;
+}
+
 /* slim scrollbars for the chat / feed columns */
 .scroll-slim::-webkit-scrollbar {
   width: 8px;

@@ -1,13 +1,7 @@
-import {
-  MessagesSquare,
-  MonitorPlay,
-  SlidersHorizontal,
-  Settings,
-  ChevronsUpDown,
-} from "lucide-react";
+import { MessagesSquare, Settings, ChevronsUpDown } from "lucide-react";
 import type { ComponentType } from "react";
 
-export type View = "assistant" | "station" | "calibration" | "settings";
+export type View = "assistant" | "settings";
 
 interface NavItem {
   id: View;
@@ -21,13 +15,6 @@ interface NavGroup {
 
 const GROUPS: NavGroup[] = [
   { title: "Operate", items: [{ id: "assistant", label: "Assistant", icon: MessagesSquare }] },
-  {
-    title: "Robot",
-    items: [
-      { id: "station", label: "Live Station", icon: MonitorPlay },
-      { id: "calibration", label: "Calibration", icon: SlidersHorizontal },
-    ],
-  },
 ];
 
 export default function Sidebar({

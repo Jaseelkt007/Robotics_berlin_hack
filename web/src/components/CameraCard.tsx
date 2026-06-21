@@ -5,7 +5,7 @@ const VIEWER_URL = import.meta.env.VITE_VIEWER_URL ?? "";
 
 export default function CameraCard() {
   return (
-    <div className="flex h-full flex-col rounded-xl border border-line bg-white">
+    <div className="flex h-full min-h-0 flex-col rounded-xl border border-line bg-white">
       <div className="flex items-center justify-between border-b border-line px-4 py-3">
         <span className="flex items-center gap-2 text-[13px] font-semibold tracking-tightish">
           <Camera size={14} className="text-faint" />

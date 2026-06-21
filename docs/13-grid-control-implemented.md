@@ -40,6 +40,7 @@ git-ignored).
 | `grasp()` | close + verify; returns `holding` + `gap` (big gap ⇒ object held). |
 | `release()` / `deliver()` / `home()` / `get_state()` | open / go to taught drop-zone / taught rest pose / live motor state. |
 | `drag(px,py,object_class)` | after grasping, slide the held object (on the table, no lift) to a destination pixel and release — reliable repositioning. |
+| `stack_on(px,py,object_class)` | after grasping, raise the held object to **stacking height** over the target box's pixel (grid pose + `stack.lift_scale`×hover_delta), set it down ON TOP, lift clear. Drives the **box-stacker** skill. |
 | `push(px,py,direction,distance_px)` | blind shove with closed jaws (rough; can miss — prefer `drag`). |
 | `wave(cycles)` | greeting gesture. |
 | `grid_selftest()` | visit every taught point — **setup check only**, run before grasping. |
@@ -61,7 +62,8 @@ cd station_mcp
 Then verify with `grid_selftest` (arm visits each taught point) **before** grasping anything.
 
 `waypoints.json`: `grid[]` of `{pixel, grasp(joints), hover_delta}` + `home`, `drop_zone`, `gripper`
-(`open_step`/`closed_step`/`grasp_current_threshold_ma`), `grasp_offsets` (per-object height), `nudge`.
+(`open_step`/`closed_step`/`grasp_current_threshold_ma`), `grasp_offsets` (per-object height), `nudge`,
+`stack` (`lift_scale` — multiplier on hover_delta for `stack_on`/place-on-top, tuned per rig).
 The grid is **object-independent for XY** — only grasp *height* is object-specific.
 
 ## Config (`station_mcp/.env`)

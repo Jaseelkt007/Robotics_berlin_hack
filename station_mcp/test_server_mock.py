@@ -12,6 +12,7 @@ WP = {
     "arm_motor_ids": [1, 2, 3, 4, 5, 6, 7],
     "gripper": {"id": 8, "open_step": 1200, "closed_step": 2400, "grasp_current_threshold_ma": 250},
     "grasp_offsets": {"box": {"2": 25}, "bottle": {"2": -90}},
+    "stack": {"lift_scale": 2.5},
     "home": {str(i): 2048 for i in range(1, 8)},
     "drop_zone": {"hover": {str(i): 2000 for i in range(1, 8)}, "grasp": {str(i): 2050 for i in range(1, 8)}},
     "nudge": {"default_step_px": 25},
@@ -81,6 +82,16 @@ async def main():
     r = await server.drag(300, 240, "box")
     assert r["ok"] and r["to"] == [300, 240] and r["released"], r
     print("drag():", {k: r[k] for k in ("ok", "to", "released")})
+
+    # stack "height" raises the grasp pose by lift_scale * hover_delta
+    grasp_j, _ = server._grid.interp(300, 240, "grasp")
+    stack_j, _ = server._grid.interp(300, 240, "stack", lift_scale=2.5)
+    assert stack_j[2] == grasp_j[2] + round(2.5 * -150), (grasp_j[2], stack_j[2])
+    print("interp(stack): motor2", grasp_j[2], "->", stack_j[2])
+
+    r = await server.stack_on(300, 240, "box")
+    assert r["ok"] and r["on"] == [300, 240] and r["released"], r
+    print("stack_on():", {k: r[k] for k in ("ok", "on", "released", "lift_scale")})
 
     print("\nALL SERVER MOCK TESTS PASSED")
 
