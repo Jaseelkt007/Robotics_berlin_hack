@@ -17,6 +17,7 @@ import struct
 import sys
 import time
 import logging
+from collections import deque
 from dataclasses import dataclass
 
 # sibling import works regardless of the launcher's cwd
@@ -63,6 +64,35 @@ def _placeholder_jpeg(text: str) -> bytes:
     return buf.getvalue()
 
 
+def _cleanest_frame(frames: list[bytes]) -> bytes:
+    """Pick the least-glitchy frame from a short burst: the one most similar to the others.
+
+    The C270 over usbip drops occasional corrupt frames; a glitch makes that frame an OUTLIER (very
+    different from its neighbours), so the frame with the smallest total difference to the rest is the
+    clean consensus. Scene must be ~static (true at a settled pose). PIL-only, returns a real frame.
+    """
+    from PIL import Image, ImageChops, ImageStat
+    pairs = []
+    for jb in frames:
+        try:
+            pairs.append((jb, Image.open(io.BytesIO(jb)).convert("RGB")))
+        except Exception:
+            pass
+    if len(pairs) < 3:
+        return frames[-1]
+    w, h = pairs[0][1].size
+    imgs = [im if im.size == (w, h) else im.resize((w, h)) for _, im in pairs]
+    best_i, best_score = 0, None
+    for i in range(len(imgs)):
+        score = 0.0
+        for j in range(len(imgs)):
+            if i != j:
+                score += sum(ImageStat.Stat(ImageChops.difference(imgs[i], imgs[j])).sum)
+        if best_score is None or score < best_score:
+            best_score, best_i = score, i
+    return pairs[best_i][0]
+
+
 def _ensure_jpeg(data: bytes) -> bytes:
     if data[:3] == b"\xff\xd8\xff":  # already JPEG
         return data
@@ -79,7 +109,7 @@ def _ensure_jpeg(data: bytes) -> bytes:
 # ----------------------------- backends -----------------------------
 class StationBackend:
     async def connect(self) -> None: ...
-    async def get_frame(self, camera: str) -> bytes: ...
+    async def get_frame(self, camera: str, denoise: bool = False) -> bytes: ...
     async def get_state(self) -> RobotState: ...
     async def send_joint_targets(self, targets: dict[int, int]) -> bool: ...
     async def set_torque(self, on: bool, motor_ids: list[int] | None = None) -> bool: ...
@@ -101,7 +131,7 @@ class MockBackend(StationBackend):
     async def connect(self) -> None:
         log.info("MockBackend ready (no hardware).")
 
-    async def get_frame(self, camera: str = "top") -> bytes:
+    async def get_frame(self, camera: str = "top", denoise: bool = False) -> bytes:
         if self.frame_path and os.path.exists(self.frame_path):
             with open(self.frame_path, "rb") as f:
                 return _ensure_jpeg(f.read())
@@ -188,6 +218,7 @@ class LiveBackend(StationBackend):
         self._latest_state: bytes | None = None
         self._motor_state: "dict[str, dict[int, MotorState]]" = {}  # accumulated per-bus per-motor state
         self._frames: dict[str, bytes] = {}   # camera key -> latest JPEG
+        self._frame_buf: dict[str, deque] = {}  # camera key -> recent JPEG burst (for denoise)
         self._frame_order: list[str] = []      # discovery order of cameras
         self._tasks: list = []
         # optional explicit camera selection by serial/unique_id substring
@@ -361,6 +392,7 @@ class LiveBackend(StationBackend):
                 if jpeg is None:
                     continue
                 self._frames[key] = jpeg
+                self._frame_buf.setdefault(key, deque(maxlen=7)).append(jpeg)
                 if key not in self._frame_order:
                     self._frame_order.append(key)
                     log.info("camera discovered: %s", key)
@@ -374,17 +406,28 @@ class LiveBackend(StationBackend):
             await asyncio.sleep(0.1)
         raise RuntimeError(f"No {what} received from Station within {timeout_s:.0f}s (is it connected?)")
 
-    async def get_frame(self, camera: str = "top") -> bytes:
-        await self._await_first(lambda: bool(self._frames), "camera frames (usbvideo)")
+    def _resolve_cam_key(self, camera: str) -> str:
         want = self._cam_map.get(camera, "")
         if want:
-            for key, jpeg in self._frames.items():
+            for key in self._frames:
                 if want in key:
-                    return jpeg
+                    return key
             log.warning("camera %r mapping %r not found; using discovery order", camera, want)
         # fallback: top -> first discovered, wrist -> second (if present)
         idx = 1 if (camera == "wrist" and len(self._frame_order) > 1) else 0
-        return self._frames[self._frame_order[idx]]
+        return self._frame_order[idx]
+
+    async def get_frame(self, camera: str = "top", denoise: bool = False) -> bytes:
+        await self._await_first(lambda: bool(self._frames), "camera frames (usbvideo)")
+        key = self._resolve_cam_key(camera)
+        if denoise:
+            buf = list(self._frame_buf.get(key, ()))
+            if len(buf) >= 3:
+                try:
+                    return _cleanest_frame(buf)
+                except Exception as e:
+                    log.debug("denoise failed: %s", e)
+        return self._frames[key]
 
     def _parse_buses(self, raw: bytes) -> "dict[str, dict[int, MotorState]]":
         """Aggregate motors per bus-serial. One bus can appear multiple times in a frame (a partial

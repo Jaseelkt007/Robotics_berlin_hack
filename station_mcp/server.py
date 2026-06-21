@@ -147,7 +147,7 @@ async def look(camera: str = "top", grid: bool = False) -> Image:
     move_to_pixel. (Overlay applies to the top frame only.)
     """
     await _ensure()
-    jpeg = await backend.get_frame(camera)
+    jpeg = await backend.get_frame(camera, denoise=(camera == "top"))  # top cam is noisy; pick cleanest
     if grid and camera == "top":
         try:
             jpeg = overlay.draw_grid(jpeg)
