@@ -84,7 +84,7 @@ class StationBackend:
     async def send_joint_targets(self, targets: dict[int, int]) -> bool: ...
     async def set_torque(self, on: bool, motor_ids: list[int] | None = None) -> bool: ...
     async def grasp_with_verify(self, closed_step: int, open_step: int, current_threshold_ma: int,
-                                gripper_id: int = 8, settle_s: float = 0.6) -> dict: ...
+                                gripper_id: int = 8, settle_s: float = 4.0) -> dict: ...
     async def run_vla(self, instruction: str, max_tries: int) -> dict: ...
     async def home(self, pose: dict[int, int] | None = None) -> bool: ...
 
@@ -125,7 +125,7 @@ class MockBackend(StationBackend):
         return True
 
     async def grasp_with_verify(self, closed_step: int, open_step: int, current_threshold_ma: int,
-                                gripper_id: int = 8, settle_s: float = 0.6) -> dict:
+                                gripper_id: int = 8, settle_s: float = 4.0) -> dict:
         # Pretend the jaws stalled short of full close with elevated current -> "holding".
         log.info("MOCK grasp_with_verify(closed=%s)", closed_step)
         return {"ok": True, "holding": True, "current_ma": current_threshold_ma + 50,
@@ -146,7 +146,7 @@ _POS_ADDR, _CUR_ADDR = 0x38, 0x45
 _MAX_STEP, _SIGN_BIT = 4095, 0x8000
 _GOAL_POSITION, _TORQUE_ENABLE = 0x2A, 0x28  # write registers (goal=2B LE, torque=1B)
 _STATE_LEN = 0x47  # full per-motor register buffer (71 bytes); shorter = partial discovery entry
-GRIPPER_SLACK = 40  # steps; a close that stalls >this far short of closed_step implies an object
+GRIPPER_SLACK = 120  # steps; jaws stopping >this far short of full close implies an object is held
 
 
 def _norm_pos(raw: int) -> int:
@@ -517,7 +517,7 @@ class LiveBackend(StationBackend):
         return True
 
     async def grasp_with_verify(self, closed_step: int, open_step: int, current_threshold_ma: int,
-                                gripper_id: int = 8, settle_s: float = 0.6) -> dict:
+                                gripper_id: int = 8, settle_s: float = 4.0) -> dict:
         """Close the gripper, then decide if something is held from motor feedback.
 
         A grasp on an object stalls the jaws SHORT of `closed_step` (position gap) AND raises current.
@@ -526,19 +526,20 @@ class LiveBackend(StationBackend):
         """
         await self.send_joint_targets({gripper_id: closed_step})
         direction = 1 if closed_step >= open_step else -1
-        current_ma, position = 0, closed_step
-        for _ in range(max(1, int(settle_s / 0.1))):
-            await asyncio.sleep(0.1)
-            st = await self.get_state()
-            m = next((mm for mm in st.motors if mm.id == gripper_id), None)
-            if m is not None:
-                current_ma, position = m.current_ma, m.position
-        stopped_short = (closed_step - position) * direction > GRIPPER_SLACK
-        current_ok = current_threshold_ma <= 0 or current_ma >= current_threshold_ma
-        holding = stopped_short and current_ok
-        log.info("grasp_with_verify: pos=%s (short=%s) cur=%smA (ok=%s) -> holding=%s",
-                 position, stopped_short, current_ma, current_ok, holding)
-        return {"ok": True, "holding": holding, "current_ma": current_ma, "position": position}
+        current_ma, position, prev = 0, closed_step, None
+        for _ in range(max(1, int(settle_s / 0.15))):  # poll until the jaws STOP moving
+            await asyncio.sleep(0.15)
+            m = next((mm for mm in (await self.get_state()).motors if mm.id == gripper_id), None)
+            if m is None:
+                continue
+            current_ma, position = m.current_ma, m.position
+            if prev is not None and abs(position - prev) < 4:
+                break  # gripper has stopped
+            prev = position
+        gap = (closed_step - position) * direction  # >0 => stopped short of full close (object present)
+        holding = gap > GRIPPER_SLACK
+        log.info("grasp_with_verify: pos=%s gap=%s cur=%smA -> holding=%s", position, gap, current_ma, holding)
+        return {"ok": True, "holding": holding, "current_ma": current_ma, "position": position, "gap": gap}
 
     async def run_vla(self, instruction: str, max_tries: int) -> dict:
         # Stage 1 needs NormaCore's FINETUNED SmolVLA checkpoint (config.json + model.safetensors +
