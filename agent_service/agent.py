@@ -72,7 +72,10 @@ def _build_options() -> ClaudeAgentOptions:
                 # Launch in station_mcp's OWN venv (see _station_mcp_launch). MOCK by default
                 # (STATION_HOST unset). server.py also loads its own .env next to itself.
                 **_station_mcp_launch(),
-                "env": {k: v for k, v in os.environ.items() if k.startswith("STATION_") or k in ("MOCK", "NORMA_CORE_PATH", "MOCK_FRAME_PATH", "VLA_MAX_TRIES")},
+                # Inherit the FULL parent environment (PATH, locale, HOME, …). Passing a filtered/empty
+                # dict here REPLACES the subprocess env and makes the stdio MCP server fail to start.
+                # STATION_*/NORMA_CORE_PATH come from station_mcp/.env (the server loads it via dotenv).
+                "env": dict(os.environ),
             }
         },
         # Append a small framing note; the robot-operator SKILL.md carries the real policy.
@@ -118,6 +121,13 @@ def _normalize(message: Any) -> list[dict[str, Any]]:
             "result": message.result,
             "session_id": message.session_id,
         })
+    elif type(message).__name__ == "SystemMessage":
+        import sys as _sys
+        d = getattr(message, "data", {}) or {}
+        if getattr(message, "subtype", "") == "init":
+            print(f"=== MCP INIT === mcp_servers={d.get('mcp_servers')} | "
+                  f"tools_n={len(d.get('tools', []))} | slash_n={len(d.get('slash_commands', []))}",
+                  file=_sys.stderr, flush=True)
     return events
 
 
