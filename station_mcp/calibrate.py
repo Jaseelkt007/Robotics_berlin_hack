@@ -102,7 +102,7 @@ async def capture() -> None:
     await backend.set_torque(False)  # ALL motors incl. gripper (motor 8) — ARM_IDS-only left it locked
 
     os.makedirs(FRAMES_DIR, exist_ok=True)
-    n = int((await _ainput("How many grid points? [12]: ")).strip() or "12")
+    n = int((await _ainput("How many grid points? [16]: ")).strip() or "16")
     print("\nKEEP THE SAME GRIPPER ORIENTATION at every point (jaws aligned to a fixed table axis).")
 
     grid, frame_w, frame_h = [], 0, 0
@@ -120,7 +120,7 @@ async def capture() -> None:
             from PIL import Image
             frame_w, frame_h = Image.open(io.BytesIO(jpeg)).size
 
-        await _ainput("        Now lift the gripper STRAIGHT UP ~5 cm, hold steady, ENTER...")
+        await _ainput("        Now lift ~3 cm STRAIGHT UP — keep it VERTICAL (sideways drift here = grasp misses), ENTER...")
         st2 = await backend.get_state()
         hover = _arm_joints(st2, ARM_IDS)
         hover_delta = {k: hover[k] - grasp[k] for k in grasp}

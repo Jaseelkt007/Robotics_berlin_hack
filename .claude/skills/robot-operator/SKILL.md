@@ -42,15 +42,22 @@ compute kinematics or write raw motor values — the tools convert a camera pixe
 
 ## Procedure — FETCH / pick-and-place (follow in order)
 1. **Acknowledge instantly**, then act ("Sure — grabbing the box.").
-2. **Locate (coarse).** `look("top", grid=True)`. Read the object's center pixel. If not in view, say so
-   and ask the person to place it on the table. If `extrapolated` later, ask them to move it inward.
+2. **Locate (coarse).** `look("top", grid=True)`. Read the pixel of the object's **base** — the edge
+   where it meets the table, on the side **nearest the camera** — NOT its center or top. The overhead
+   cam is at a slight angle, so a tall object's top projects offset from where the gripper must go;
+   aiming at the base removes that error. If not in view, ask the person to place it on the table;
+   `extrapolated:true` later → ask them to move it inward.
 3. **Open + hover.** `release()`, then `move_to_pixel(px, py, "hover")`.
-4. **Align (wrist, closed-loop).** `look("wrist")`. Is the object centered between the jaws? If not,
-   `nudge` one small step, `look("wrist")` again — if it got better, continue that way; if worse,
-   reverse. (The nudge→wrist-view mapping isn't fixed; learn it from one trial.) Repeat ~1–3 times
-   until centered. The top cam is too noisy for this — use the wrist.
-5. **Descend + grasp.** `move_to_pixel(px, py, "grasp", object_class="box")` then `grasp()`. Check `gap`:
-   big → held; ~0 → missed: re-`hover`, re-align (step 4), retry once, then stop and report.
+4. **Align on the WRIST cam** (the top cam is too noisy for fine work). `look("wrist")`. Get the object
+   **centered between the jaws, at the jaw line.** Use SMALL `nudge` steps. The nudge→wrist-view mapping
+   isn't obvious, so make ONE small nudge, `look("wrist")` to see which way the object moved, then
+   correct in that light. Keep steps small and stop the moment it's centered (~2–4 nudges). If a nudge
+   throws the object out of the small wrist frame, reverse and go smaller.
+5. **Descend + grasp.** `move_to_pixel(px, py, "grasp", object_class="box")` then `grasp()`. The drop is
+   short, so good centering survives it. Check `gap`: large → held → continue. `gap≈0` → **missed, and
+   the descent likely bumped the object** — `home()`, then `look("top", grid=True)` to **re-locate it
+   fresh** (it moved) and retry from step 2. Re-descending at the same pixel won't work. Retry ~twice,
+   then stop and report.
 6. **Lift + deliver.** `move_to_pixel(px, py, "hover")`, then `deliver()`, `release()`, `home()`.
 7. **Report** in one short sentence.
 
