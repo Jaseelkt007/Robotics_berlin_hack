@@ -47,3 +47,9 @@ station_mcp/waypoints.partial.json
 # waypoints.json is rig-specific calibration output; force-add it (git add -f) if you
 # deliberately want to commit a demo machine's grid.
 station_mcp/waypoints.json
+
+# scratch capture images from bring-up
+station_mcp/box_*.jpg
+station_mcp/look_*.jpg
+station_mcp/hover_check.jpg
+station_mcp/probe.jpg
