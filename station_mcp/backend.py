@@ -220,8 +220,10 @@ class LiveBackend(StationBackend):
         log.info("Connected to Station at %s:%s", self.host, self.port)
 
         state_q: asyncio.Queue = asyncio.Queue()
+        rx_q: asyncio.Queue = asyncio.Queue()
         video_q: asyncio.Queue = asyncio.Queue()
-        self.client.follow("st3215/inference", state_q)
+        self.client.follow("st3215/inference", state_q)  # calibrated RANGES (static; freezes when idle)
+        self.client.follow("st3215/rx", rx_q)            # LIVE present position/current (works torque-off)
         # Cameras publish to per-camera queues `usbvideo/<md5(camera_unique_id)>` (see norma-core
         # usbvideo/src/pipeline.rs generate_queue_id) — NOT a single "usbvideo" queue. Discover the
         # live ones and follow each into the same consumer.
@@ -235,6 +237,7 @@ class LiveBackend(StationBackend):
             log.warning("no usbvideo/<hash> camera queues found; set STATION_DATA_DIR to the "
                         "station's data dir so look() can get frames")
         self._tasks.append(asyncio.create_task(self._consume_state(state_q)))
+        self._tasks.append(asyncio.create_task(self._consume_rx(rx_q)))
         self._tasks.append(asyncio.create_task(self._consume_video(video_q)))
         await self._warmup_state()
 
@@ -290,11 +293,47 @@ class LiveBackend(StationBackend):
             try:
                 raw = bytes(entry.Data)
                 self._latest_state = raw
-                # Frames are incremental (a few motors each); merge full dumps into the running view.
+                # inference is authoritative only for calibrated RANGES; live position/current come
+                # from st3215/rx (inference freezes when torque is off). Update ranges, keep rx position.
                 for serial, motors in self._parse_buses(raw).items():
-                    self._motor_state.setdefault(serial, {}).update(motors)
+                    slot = self._motor_state.setdefault(serial, {})
+                    for mid, m in motors.items():
+                        if mid in slot:
+                            slot[mid].range_min = m.range_min
+                            slot[mid].range_max = m.range_max
+                        else:
+                            slot[mid] = m
             except Exception as e:
                 log.debug("state cache error: %s", e)
+
+    async def _consume_rx(self, q: asyncio.Queue) -> None:
+        """st3215/rx carries per-motor raw register reads ~continuously (even torque-off), so it is the
+        LIVE source of present position/current. inference only re-publishes on triggers, so it freezes
+        during torque-off hand-posing — which silently broke calibration captures."""
+        while True:
+            entry = await q.get()
+            if entry is None:
+                break
+            try:
+                r = self._st3215.RxEnvelopeReader(memoryview(bytes(entry.Data)))
+                data = bytes(r.get_data())
+                if len(data) < _STATE_LEN:
+                    continue
+                bus = r.get_bus()
+                serial = bus.get_serial_number() if bus else None
+                mid = r.get_motor_id()
+                if not serial or mid == 0:
+                    continue
+                position = _norm_pos(_u16(data, _POS_ADDR))
+                current = _u16(data, _CUR_ADDR)
+                slot = self._motor_state.setdefault(serial, {})
+                if mid in slot:
+                    slot[mid].position = position
+                    slot[mid].current_ma = current
+                else:
+                    slot[mid] = MotorState(mid, position, current, 0, _MAX_STEP)
+            except Exception as e:
+                log.debug("rx cache error: %s", e)
 
     async def _consume_video(self, q: asyncio.Queue) -> None:
         while True:
