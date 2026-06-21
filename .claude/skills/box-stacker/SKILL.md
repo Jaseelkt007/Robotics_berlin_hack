@@ -41,8 +41,8 @@ procedure as robot-operator; the only new piece is placing at **stacking height*
 - **Grasp = `gap`:** after `grasp()`, a large `gap` means it's held; `gap≈0` means it closed on air.
 - **Stacking height is tuned, not computed.** `stack_on` raises by `stack.lift_scale × hover_delta`.
   If it isn't tuned yet it may place too high or clip the target — tell the operator to adjust
-  `stack.lift_scale` in `waypoints.json` (live-editable, no restart): raise it if the held box clips
-  the target going in, lower it if it drops from too high.
+  `stack.lift_scale` in `waypoints.json`: raise it if the held box clips the target going in, lower
+  it if it drops from too high.
 
 ## Procedure — STACK source ON TOP OF target (follow in order)
 1. **Acknowledge instantly**, then act ("Sure — stacking the small box on the big one.").

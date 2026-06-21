@@ -148,8 +148,8 @@ class GridMap:
         - "stack": grasp + lift_scale x hover_delta — raises the gripper to set a
           HELD object on TOP of whatever sits at (px,py). Reuses each point's
           taught hover_delta (its local "up" direction), so the lift stays closer
-          to vertical than a blind global joint push. `lift_scale` overrides the
-          taught `stack.lift_scale` (used for live height tuning).
+          to vertical than a blind global joint push. `lift_scale` optionally
+          overrides the taught `stack.lift_scale` (e.g. in tests).
 
         Returns (joints, extrapolated). `extrapolated` is True when the query
         lies outside the convex hull of taught points (the result is still

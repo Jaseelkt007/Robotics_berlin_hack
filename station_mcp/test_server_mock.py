@@ -91,7 +91,7 @@ async def main():
 
     r = await server.stack_on(300, 240, "box")
     assert r["ok"] and r["on"] == [300, 240] and r["released"], r
-    print("stack_on():", {k: r[k] for k in ("ok", "on", "released", "lift_scale")})
+    print("stack_on():", {k: r[k] for k in ("ok", "on", "released")})
 
     print("\nALL SERVER MOCK TESTS PASSED")
 

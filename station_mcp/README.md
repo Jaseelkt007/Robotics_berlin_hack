@@ -26,7 +26,7 @@ Original two-stage plan: docs/10–11.
 | `grasp()` / `release()` | close + verify (`holding`/`gap`) / open. |
 | `deliver()` / `home()` / `get_state()` | taught drop-zone / taught rest pose / live motor state. |
 | `drag(px,py,object_class)` | after grasping, slide the held object (on the table, no lift) to a destination pixel and release — reliable repositioning. |
-| `stack_on(px,py,object_class)` | after grasping, raise the held object to **stacking height** over the target box's pixel, set it down ON TOP, then lift clear. Height = grid pose + `stack.lift_scale`×hover_delta (tunable live in `waypoints.json`). |
+| `stack_on(px,py,object_class)` | after grasping, raise the held object to **stacking height** over the target box's pixel and set it down ON TOP (call `home()` to retract). Height = grid pose + `stack.lift_scale`×hover_delta, tuned per rig in `waypoints.json`. |
 | `push(px,py,direction,distance_px)` | blind shove with closed jaws (rough; can miss — prefer `drag`). |
 | `wave(cycles)` / `grid_selftest()` | greeting gesture / setup check (visit all taught points). |
 | `run_vla_task` / `locate` / `move_to` | original SmolVLA/ArUco/IK stubs — left in place, not the path. |
