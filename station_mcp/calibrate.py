@@ -128,36 +128,47 @@ async def capture() -> None:
     g_closed = _motor_pos(await backend.get_state(), GRIPPER_ID)
 
     threshold = 250
-    if (input("Measure grasp current with a powered close on the box? [y/N]: ").strip().lower() == "y"):
+
+    def _save(thr: int) -> None:
+        wp = {
+            "version": 1,
+            "frame": {"camera": "top", "width": frame_w, "height": frame_h},
+            "orientation_note": "all grid poses share one locked gripper orientation",
+            "arm_motor_ids": ARM_IDS,
+            "gripper": {"id": GRIPPER_ID, "open_step": g_open, "closed_step": g_closed,
+                        "grasp_current_threshold_ma": thr},
+            "grasp_offsets": {"box": {}, "bottle": {}, "cup": {}},
+            "home": home,
+            "drop_zone": {"hover": dz_hover, "grasp": dz_grasp},
+            "nudge": {"default_step_px": 25},
+            "grid": grid,
+        }
+        with open(PARTIAL, "w") as f:
+            json.dump(wp, f, indent=2)
+
+    # Save NOW — BEFORE any command-write, which can time out on a long-lived connection — so the
+    # captured points can never be lost to a late failure.
+    _save(threshold)
+    print(f"\nSaved {PARTIAL} ({len(grid)} points); frames in {FRAMES_DIR}/")
+
+    # Optional grasp-current measurement — fully non-fatal; re-saves with a tuned threshold on success.
+    if input("Measure grasp current with a powered close on the box? [y/N]: ").strip().lower() == "y":
         try:
             await backend.set_torque(True, [GRIPPER_ID])
             await backend.send_joint_targets({GRIPPER_ID: g_closed})
             await asyncio.sleep(0.9)
             cur = next((m.current_ma for m in (await backend.get_state()).motors if m.id == GRIPPER_ID), 0)
             threshold = max(80, int(cur * 0.6))
-            print(f"        held current {cur} mA -> threshold {threshold} mA")
+            _save(threshold)
+            print(f"        held current {cur} mA -> threshold {threshold} mA (saved)")
         except Exception as e:
-            print("        skipped current measurement:", e)
+            print(f"        current measurement skipped ({e or type(e).__name__}); kept default {threshold} mA")
         finally:
-            await backend.set_torque(False, [GRIPPER_ID])  # always leave the gripper openable
+            try:
+                await backend.set_torque(False, [GRIPPER_ID])
+            except Exception:
+                pass
 
-    wp = {
-        "version": 1,
-        "frame": {"camera": "top", "width": frame_w, "height": frame_h},
-        "orientation_note": "all grid poses share one locked gripper orientation",
-        "arm_motor_ids": ARM_IDS,
-        "gripper": {"id": GRIPPER_ID, "open_step": g_open, "closed_step": g_closed,
-                    "grasp_current_threshold_ma": threshold},
-        "grasp_offsets": {"box": {}, "bottle": {}, "cup": {}},
-        "home": home,
-        "drop_zone": {"hover": dz_hover, "grasp": dz_grasp},
-        "nudge": {"default_step_px": 25},
-        "grid": grid,
-    }
-    with open(PARTIAL, "w") as f:
-        json.dump(wp, f, indent=2)
-    await backend.set_torque(False)  # leave every motor limp/openable when capture ends
-    print(f"\nWrote {PARTIAL} ({len(grid)} points) and frames in {FRAMES_DIR}/")
     print("Next:  python calibrate.py click")
 
 
