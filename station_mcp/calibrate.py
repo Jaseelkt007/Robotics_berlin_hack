@@ -44,7 +44,7 @@ def _motor_pos(state, mid) -> int:
     return next((m.position for m in state.motors if m.id == mid), 0)
 
 
-async def capture() -> None:
+async def _connect() -> "LiveBackend":
     host = os.environ.get("STATION_HOST", "").strip()
     if not host:
         sys.exit("Set STATION_HOST (and NORMA_CORE_PATH) to reach the live Station.")
@@ -56,7 +56,30 @@ async def capture() -> None:
     )
     print(f"Connecting to Station at {host} ...")
     await backend.connect()
+    return backend
 
+
+async def info() -> None:
+    """List the motor buses and cameras so you can pin STATION_BUS_SERIAL / CAMERA_TOP / CAMERA_WRIST."""
+    backend = await _connect()
+    await backend.get_state()       # wait for joint state
+    await backend.get_frame("top")  # wait for camera frames
+    print("\nBUSES (pin the FOLLOWER as STATION_BUS_SERIAL):")
+    for serial, motors in backend._motor_state.items():
+        calib = sum(1 for m in motors.values() if m.range_max > m.range_min)
+        marker = "  <- currently auto-selected" if serial == backend._select_bus(backend._motor_state) else ""
+        print(f"  {serial}: {len(motors)} motors, {calib} calibrated{marker}")
+    print("\nCAMERAS (set CAMERA_TOP / CAMERA_WRIST to a substring of the right id):")
+    for i, key in enumerate(backend._frame_order):
+        fn = f"cam_{i}.jpg"
+        with open(os.path.join(SCRIPT_DIR, fn), "wb") as f:
+            f.write(backend._frames[key])
+        print(f"  [{i}] id={key!r}  -> saved {fn} (open it to see which view this is)")
+    print("\nOpen the saved cam_*.jpg to tell which is the overhead (top) view, then set the env vars.")
+
+
+async def capture() -> None:
+    backend = await _connect()
     print("Releasing torque on the arm so you can hand-pose it ...")
     await backend.set_torque(False, ARM_IDS)
 
@@ -242,9 +265,11 @@ def click_server() -> None:
 # ----------------------------- entry -----------------------------
 if __name__ == "__main__":
     cmd = sys.argv[1] if len(sys.argv) > 1 else ""
-    if cmd == "capture":
+    if cmd == "info":
+        asyncio.run(info())
+    elif cmd == "capture":
         asyncio.run(capture())
     elif cmd == "click":
         click_server()
     else:
-        sys.exit("usage: python calibrate.py [capture|click]")
+        sys.exit("usage: python calibrate.py [info|capture|click]")
