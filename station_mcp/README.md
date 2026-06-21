@@ -4,33 +4,32 @@ The bridge that lets **Claude (or Codex) drive the NormaCore Station** — the l
 ("integrate the Station API into Claude"). It wraps `station_py` and exposes the robot to Claude as
 **MCP tools**. Connects to a **local or remote** Station over TCP (so the arm can be on another laptop).
 
-Design: [`../docs/11-claude-integration.md`](../docs/11-claude-integration.md) ·
-two-stage plan: [`../docs/10-implementation-strategy.md`](../docs/10-implementation-strategy.md).
+**AS-BUILT design:** [`../docs/13-grid-control-implemented.md`](../docs/13-grid-control-implemented.md)
+— the **grid track** that actually runs (Claude reads a pixel → grid → joints; no IK/ArUco/VLA).
+Original two-stage plan: docs/10–11.
 
-## Status
+## Status (2026-06-21)
 
-- ✅ **Mock mode works** (no hardware) — proves the MCP↔Claude wiring, incl. `look()` returning an
-  image Claude can *see*. **Linchpin verified.**
-- ✅ **Live `look()` + `get_state()` implemented** (background `follow` of `usbvideo` +
-  `st3215/inference`, Gremlin reader parsing). Verified against the real protobufs — **pending an
-  end-to-end run on the arm.**
-- 🔧 **Next milestone:** `run_vla_task` (NormaCore SmolVLA trigger), `locate`/`move_to` (ArUco + IK),
-  `send_joint_targets` (for live `grasp`/`release`/`home`).
+- ✅ **Grid track live on hardware** — first full autonomous-grid **pick-and-place succeeded**
+  (locate → grasp → lift → deliver). Calibration + `grid_selftest` validated.
+- ✅ Live `look`/`get_state`/`move_to_pixel`/`grasp`/`release`/`deliver`/`home` working. State read from
+  **`st3215/rx`** (the live queue); camera frames from per-camera `usbvideo/<hash>` queues.
+- ▶ **Next:** live brain test (`agent_service` + web, "bring me the box"); reliability; per-object heights.
 
 ## Tools
 
-| Tool | Stage | Status |
-|---|---|---|
-| `look(camera="top"\|"wrist")` | both | ✅ mock · ✅ live (parses `usbvideo`; untested on real cam) |
-| `get_state()` | both | ✅ mock · ✅ live (parses `st3215/inference`; untested on real arm) |
-| `run_vla_task(instruction, max_tries)` | 1 (primary) | ✅ mock · 🔧 live TODO (confirm NormaCore SmolVLA run API) |
-| `locate(target)` | 2 (fallback) | 🔧 TODO (ArUco + 2D→3D) |
-| `move_to(x,y,z)` | 2 (fallback) | 🔧 TODO (IK) |
-| `grasp()` / `release()` | 2 | ✅ mock · 🔧 live TODO (needs `send_joint_targets`) |
-| `home()` | — | ✅ mock · 🔧 live TODO |
+| Tool | What it does |
+|---|---|
+| `look(camera, grid)` | `look("top", grid=True)` = overhead + pixel grid (LOCATE); returns the **cleanest of a frame burst**. `look("wrist")` = close-up (ALIGN). |
+| `move_to_pixel(px,py,height,object_class)` | gripper → table point under a top-cam pixel via the grid (no IK). `height`=`hover`\|`grasp`; **settles before returning**; `extrapolated:true` ⇒ outside taught area. |
+| `nudge(direction)` | small `up\|down\|left\|right` step in the top-image frame. |
+| `grasp()` / `release()` | close + verify (`holding`/`gap`) / open. |
+| `deliver()` / `home()` / `get_state()` | taught drop-zone / taught rest pose / live motor state. |
+| `push(px,py,direction,distance_px)` | descend (closed jaws) and shove an object (topple/move-aside). |
+| `wave(cycles)` / `grid_selftest()` | greeting gesture / setup check (visit all taught points). |
+| `run_vla_task` / `locate` / `move_to` | original SmolVLA/ArUco/IK stubs — left in place, not the path. |
 
-Every motor command passes through `safety.clamp_targets()` (calibrated-range clamp) — the LLM never
-writes raw values to the arm.
+Every motion passes `safety.clamp_targets()` (calibrated-range clamp) — the LLM never writes raw values.
 
 ## Setup (uv — fast, and avoids the `/mnt/d` venv/pip issue)
 
@@ -57,7 +56,9 @@ STATION_HOST=192.168.x.y NORMA_CORE_PATH=/mnt/d/normacore/norma-core uv run pyth
 | `STATION_HOST` | Station host/IP. **Unset ⇒ MOCK mode.** |
 | `STATION_PORT` | default `8888` |
 | `NORMA_CORE_PATH` | path to the cloned `norma-core` repo (for `station_py` + protobufs) — LIVE only |
-| `CAMERA_TOP` / `CAMERA_WRIST` | camera serial/unique_id substring to map names (else discovery order: top=1st, wrist=2nd) |
+| `STATION_BUS_SERIAL` | pin the arm bus (leader+follower = 2 buses); else auto-selects most-calibrated |
+| `STATION_DATA_DIR` | Station data dir, so per-camera `usbvideo/<hash>` queues can be discovered |
+| `CAMERA_TOP` / `CAMERA_WRIST` | camera vid:pid (or serial) substring → name mapping (else discovery order) |
 | `MOCK` | force mock even if `STATION_HOST` is set |
 | `MOCK_FRAME_PATH` | image served by `look()` in mock mode |
 | `VLA_MAX_TRIES` | Stage-1 retry count (default 3) |
@@ -93,11 +94,14 @@ and connect over the LAN.
 5. Ask: `call look on top then wrist, and call get_state` → expect **real** camera frames + **real**
    joint positions/current/ranges.
 
-## What's left to wire (LIVE)
-- `run_vla_task`: confirm with NormaCore exactly how the finetuned SmolVLA is triggered, then loop N tries.
-- `locate` (ArUco + 2D→3D) and `move_to` (IK via `ikpy`/PyBullet + URDF).
-- `send_joint_targets` (st3215 `sync_write` to `0x2A`) → unlocks live `grasp`/`release`/`home`.
-- Confirm camera mapping (`CAMERA_TOP`/`CAMERA_WRIST`) once the real serials show up in the logs.
+## Calibrate the grid (one-time per rig)
+```bash
+.venv/bin/python calibrate.py info      # list buses + dump a frame per camera → pick STATION_BUS_SERIAL / CAMERA_*
+.venv/bin/python calibrate.py capture   # torque off; hand-pose ~12 grid points + home/drop-zone/gripper
+.venv/bin/python calibrate.py click     # browser :8799 — click the gripper tip per frame → waypoints.json
+```
+Then call `grid_selftest` (arm visits each taught point) before grasping. Full flow + `waypoints.json`
+schema: [`../docs/13-grid-control-implemented.md`](../docs/13-grid-control-implemented.md).
 
 
 ## Live bring-up notes (WSL, one machine)
@@ -121,3 +125,12 @@ Everything (Station + arm + cameras) on a single Windows+WSL box. Lessons from a
    that includes `uvcvideo` — no custom kernel needed (verified on a teammate's box: kernel 6.18.x,
    C270 → `/dev/video0`). After updating: `wsl --shutdown`, re-attach USB, then verify
    `v4l2-ctl --list-devices` / `ls /dev/video*` before expecting `look()` to work.
+6. **Read live joint state from `st3215/rx`, not `st3215/inference`** — inference freezes present
+   position when torque is off (silently broke torque-off calibration capture until fixed).
+7. **Camera frames are on per-camera `usbvideo/<md5(id)>` queues** — set `STATION_DATA_DIR` so the
+   backend can discover them; following plain `usbvideo` returns nothing.
+8. **Clear stale bytecode** (`rm -rf __pycache__`) on the `/mnt` Windows drive if edits don't take effect.
+9. **Gripper can't be hand-moved** — set open/closed by powered moves; **grasp verify waits for the
+   jaws to stop** and judges by close-gap. The top cam is noisy → do **fine alignment on the wrist cam**.
+
+Full gotcha list + learnings: [`../docs/13-grid-control-implemented.md`](../docs/13-grid-control-implemented.md).

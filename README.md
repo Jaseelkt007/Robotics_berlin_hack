@@ -5,16 +5,20 @@ can control the robot by looking through the cameras."*
 
 **What we're building:** a **voice/chat-commanded robotic "third hand"** — an assistant you *talk to*
 that looks through the robot's camera, figures out the physical task, does it, and **corrects itself
-when it fails**. **Claude itself is the brain**, orchestrating a **two-stage executor** — **Stage 1:**
-NormaCore's **finetuned SmolVLA**; **Stage 2 fallback:** **pose estimation (ArUco + 2D→3D) + IK**.
-NormaCore's Station API is wrapped as an **MCP server**.
-*(We train nothing ourselves initially; fine-tuning SmolVLA on our objects is a possible later step.)*
+when it fails**. **Claude itself is the brain**, wrapping NormaCore's Station API as an **MCP server**.
+
+**What actually runs (the reliable track):** SmolVLA was blocked on a checkpoint, so we built a
+**SmolVLA-independent grid track** — Claude reads a target's **pixel** from the overhead camera and a
+**pre-taught pixel→joint grid** turns it into motion (no IK, no ArUco, no API key). First full
+autonomous **pick-and-place succeeded on hardware (2026-06-21)**. As-built design:
+[`docs/13-grid-control-implemented.md`](./docs/13-grid-control-implemented.md). *(The original two-stage
+SmolVLA+IK plan is docs/10–11, kept for reference.)*
 
 > One-liner: *Not a remote control — an assistant with eyes, judgment, and a conversation.*
 
-**Full plan:** [`docs/10-implementation-strategy.md`](./docs/10-implementation-strategy.md) ·
+**⭐ As-built (grid track):** [`docs/13-grid-control-implemented.md`](./docs/13-grid-control-implemented.md) ·
 **How Claude connects:** [`docs/11-claude-integration.md`](./docs/11-claude-integration.md) ·
-**Joint-control plan:** [`docs/12-joint-control-plan.md`](./docs/12-joint-control-plan.md) ·
+**Original plan:** [`docs/10-implementation-strategy.md`](./docs/10-implementation-strategy.md) ·
 **Docs index:** [`docs/README.md`](./docs/README.md).
 
 ---
@@ -103,12 +107,14 @@ calibration in the web UI, run NormaCore's `station-viewer` and set `VITE_VIEWER
 ├── .claude/skills/robot-operator/SKILL.md   ← the operator "brain" policy (team-shared skill)
 ├── docs/                                     ← all project documentation (start at docs/README.md)
 │   ├── 00–09 …                               ← hackathon, vision, architecture, Station API, DH params
-│   ├── 10-implementation-strategy.md         ← ⭐ canonical two-stage plan + UI spec
+│   ├── 10-implementation-strategy.md         ← original two-stage plan (superseded by 13)
 │   ├── 11-claude-integration.md              ← how Claude connects (MCP, tools, Skill, Agent SDK)
-│   └── 12-joint-control-plan.md              ← plan for send_joint_targets → grasp/release/home
+│   ├── 12-joint-control-plan.md              ← send_joint_targets → grasp/release/home
+│   └── 13-grid-control-implemented.md        ← ⭐ AS-BUILT: grid track + calibration + gotchas
 ├── station_mcp/                              ← ⭐ the Station-MCP server (Python; wraps the arm as tools)
-│   ├── server.py  backend.py  safety.py
-│   ├── enable_torque.py  check_torque.py  subscribe_normvla.py
+│   ├── server.py  backend.py  safety.py  gridmap.py  overlay.py
+│   ├── calibrate.py                          ← teach the pixel→joint grid → waypoints.json
+│   ├── pick.py  look.py  run_selftest.py     ← manual bring-up tools
 │   └── requirements.txt  .env.example  README.md
 ├── agent_service/                            ← always-on Claude brain (Agent SDK) behind the web UI
 │   ├── agent.py  server.py  smoke_test.py
@@ -122,17 +128,15 @@ calibration in the web UI, run NormaCore's `station-viewer` and set `VITE_VIEWER
 
 ## Status (2026-06-21)
 
-- ✅ **MCP server** — mock mode works; **vision linchpin proven** (Claude *sees* camera frames via
-  `look()`); live `look()` + `get_state()` implemented.
-- ✅ **Agent service (brain)** — always-on persistent Claude session over WebSocket, **uses the Claude
-  subscription** (no API key), loads the `robot-operator` skill + the MCP. End-to-end verified in mock
-  (chat → Claude → skill → MCP → camera frame).
-- ✅ **Web UI** — clean operator dashboard; chat + "watch it think" feed (markdown + animated tool
-  calls), sidebar (Assistant / Live Station / Calibration / Settings), station-viewer embeddable.
-- ⏳ **Next:** `send_joint_targets` → `grasp`/`release`/`home` (plan in `docs/12`; unlocks real motion) ·
-  `run_vla_task` live (confirm NormaCore's SmolVLA trigger) · Stage-2 `locate`/`move_to` (ArUco + IK) ·
-  end-to-end run on the real arm. See
-  [`docs/07-open-questions-and-next-steps.md`](./docs/07-open-questions-and-next-steps.md).
+- ✅ **Grid track live on hardware** — calibrated pixel→joint grid; **first full autonomous pick-and-place
+  succeeded** (locate → grasp → lift → deliver → release). `grid_selftest` validated; live state from
+  `st3215/rx`, camera frames from per-camera `usbvideo/<hash>` queues.
+- ✅ **MCP tools** — `look` (cleanest-of-burst), `move_to_pixel`, `nudge`, `grasp` (verify by close-gap),
+  `release`/`deliver`/`home`, plus `push`/`wave`. Calibrate with `station_mcp/calibrate.py`.
+- ✅ **Agent service (brain)** — always-on persistent Claude session, subscription auth, loads the
+  rewritten `robot-operator` skill + the MCP. **Web UI** dashboard with the "watch it think" feed.
+- ▶ **Next:** **live brain test** (`agent_service` + web → "bring me the box") on the real cam; reliability
+  reps; per-object grasp heights; (stretch) voice. Full status: `docs/13-grid-control-implemented.md`.
 
 ## Stack
 

@@ -1,5 +1,10 @@
 # Claude Integration Plan — connecting Claude to the Station
 
+> ℹ️ The MCP/skill/Agent-SDK wiring here is still accurate, but the **execution path** changed: the
+> grid track replaced SmolVLA/IK. See [`13-grid-control-implemented.md`](./13-grid-control-implemented.md)
+> for the tools and flow that actually run.
+
+
 > **How Claude actually drives the robot.** Companion to
 > [`10-implementation-strategy.md`](./10-implementation-strategy.md) (the two-stage *what*) — this is
 > the *how* (the wiring). Last updated: 2026-06-20.

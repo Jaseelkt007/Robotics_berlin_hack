@@ -1,4 +1,10 @@
-# Implementation Strategy (CANONICAL)
+# Implementation Strategy (ORIGINAL PLAN — superseded)
+
+> ⚠️ **Superseded by [`13-grid-control-implemented.md`](./13-grid-control-implemented.md).** This is the
+> original SmolVLA-primary + ArUco/IK plan. SmolVLA was blocked on a checkpoint, so the **grid track**
+> (Claude reads a pixel → pre-taught pixel→joint grid → motion) became the path that actually runs.
+> Kept for reference / the broader vision.
+
 
 > **This is the single source of truth for HOW we build the pick-and-place.** Where older docs said
 > "no training," "SmolVLA not used," or "pose estimation not needed," **this doc supersedes them** —
