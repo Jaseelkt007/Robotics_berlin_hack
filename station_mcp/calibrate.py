@@ -17,6 +17,7 @@ grid before grasping anything. The top camera must not move after capture, or th
 from __future__ import annotations
 
 import asyncio
+import functools
 import io
 import json
 import os
@@ -32,6 +33,15 @@ try:
     load_dotenv(os.path.join(os.path.dirname(os.path.abspath(__file__)), ".env"))
 except Exception:
     pass
+
+_builtin_input = input
+
+
+async def _ainput(prompt: str = "") -> str:
+    """input() that runs off the event loop, so background tasks (the live st3215/rx state consumer)
+    keep running while we wait at the prompt. A plain input() blocks the loop -> get_state() freezes."""
+    return await asyncio.get_running_loop().run_in_executor(None, functools.partial(_builtin_input, prompt))
+
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 PARTIAL = os.path.join(SCRIPT_DIR, "waypoints.partial.json")
@@ -91,12 +101,12 @@ async def capture() -> None:
     await backend.set_torque(False)  # ALL motors incl. gripper (motor 8) — ARM_IDS-only left it locked
 
     os.makedirs(FRAMES_DIR, exist_ok=True)
-    n = int(input("How many grid points? [12]: ").strip() or "12")
+    n = int((await _ainput("How many grid points? [12]: ")).strip() or "12")
     print("\nKEEP THE SAME GRIPPER ORIENTATION at every point (jaws aligned to a fixed table axis).")
 
     grid, frame_w, frame_h = [], 0, 0
     for i in range(n):
-        input(f"\n[{i + 1}/{n}] Hand-pose the gripper TIP at GRASP height over a table spot, hold steady, ENTER...")
+        await _ainput(f"\n[{i + 1}/{n}] Hand-pose the gripper TIP at GRASP height over a table spot, hold steady, ENTER...")
         st = await backend.get_state()
         grasp = _arm_joints(st, ARM_IDS)
         jpeg = await backend.get_frame("top")
@@ -107,24 +117,29 @@ async def capture() -> None:
             from PIL import Image
             frame_w, frame_h = Image.open(io.BytesIO(jpeg)).size
 
-        input("        Now lift the gripper STRAIGHT UP ~5 cm, hold steady, ENTER...")
+        await _ainput("        Now lift the gripper STRAIGHT UP ~5 cm, hold steady, ENTER...")
         st2 = await backend.get_state()
         hover = _arm_joints(st2, ARM_IDS)
         hover_delta = {k: hover[k] - grasp[k] for k in grasp}
+        dup = grid and grid[-1]["grasp"] == grasp
         grid.append({"id": f"p{i}", "pixel": None, "frame": f"calib_frames/{fname}",
                      "grasp": grasp, "hover_delta": hover_delta})
-        print("        captured.")
+        if dup:
+            print("        captured.  !! WARNING: IDENTICAL to the previous point — state looks stale. "
+                  "Stop (Ctrl+C) and tell me; don't keep going.")
+        else:
+            print("        captured.")
 
-    input("\nHand-pose the arm at the HOME / transit pose, ENTER...")
+    await _ainput("\nHand-pose the arm at the HOME / transit pose, ENTER...")
     home = _arm_joints(await backend.get_state(), ARM_IDS)
-    input("Hand-pose the gripper at the DROP-ZONE HOVER height, ENTER...")
+    await _ainput("Hand-pose the gripper at the DROP-ZONE HOVER height, ENTER...")
     dz_hover = _arm_joints(await backend.get_state(), ARM_IDS)
-    input("Lower to the DROP-ZONE RELEASE height, ENTER...")
+    await _ainput("Lower to the DROP-ZONE RELEASE height, ENTER...")
     dz_grasp = _arm_joints(await backend.get_state(), ARM_IDS)
 
-    input("Open the gripper fully (by hand), ENTER...")
+    await _ainput("Open the gripper fully (by hand), ENTER...")
     g_open = _motor_pos(await backend.get_state(), GRIPPER_ID)
-    input("Close the gripper on the box (by hand), ENTER...")
+    await _ainput("Close the gripper on the box (by hand), ENTER...")
     g_closed = _motor_pos(await backend.get_state(), GRIPPER_ID)
 
     threshold = 250
@@ -152,7 +167,7 @@ async def capture() -> None:
     print(f"\nSaved {PARTIAL} ({len(grid)} points); frames in {FRAMES_DIR}/")
 
     # Optional grasp-current measurement — fully non-fatal; re-saves with a tuned threshold on success.
-    if input("Measure grasp current with a powered close on the box? [y/N]: ").strip().lower() == "y":
+    if (await _ainput("Measure grasp current with a powered close on the box? [y/N]: ")).strip().lower() == "y":
         try:
             await backend.set_torque(True, [GRIPPER_ID])
             await backend.send_joint_targets({GRIPPER_ID: g_closed})
