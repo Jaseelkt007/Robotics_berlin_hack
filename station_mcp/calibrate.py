@@ -26,6 +26,13 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from backend import LiveBackend  # noqa: E402
 
+# optional .env (the same file the MCP server reads) so calibrate + server share one config
+try:
+    from dotenv import load_dotenv  # type: ignore
+    load_dotenv(os.path.join(os.path.dirname(os.path.abspath(__file__)), ".env"))
+except Exception:
+    pass
+
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 PARTIAL = os.path.join(SCRIPT_DIR, "waypoints.partial.json")
 FRAMES_DIR = os.path.join(SCRIPT_DIR, "calib_frames")

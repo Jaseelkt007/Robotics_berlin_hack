@@ -9,11 +9,13 @@
 from __future__ import annotations
 
 import asyncio
+import glob
 import io
 import math
 import os
 import struct
 import sys
+import time
 import logging
 from dataclasses import dataclass
 
@@ -220,10 +222,65 @@ class LiveBackend(StationBackend):
         state_q: asyncio.Queue = asyncio.Queue()
         video_q: asyncio.Queue = asyncio.Queue()
         self.client.follow("st3215/inference", state_q)
-        self.client.follow("usbvideo", video_q)
+        # Cameras publish to per-camera queues `usbvideo/<md5(camera_unique_id)>` (see norma-core
+        # usbvideo/src/pipeline.rs generate_queue_id) — NOT a single "usbvideo" queue. Discover the
+        # live ones and follow each into the same consumer.
+        video_ids = self._discover_video_queue_ids()
+        if video_ids:
+            for qid in video_ids:
+                self.client.follow(qid, video_q)
+            log.info("following %d camera queue(s): %s", len(video_ids), video_ids)
+        else:
+            self.client.follow("usbvideo", video_q)  # fallback (usually empty)
+            log.warning("no usbvideo/<hash> camera queues found; set STATION_DATA_DIR to the "
+                        "station's data dir so look() can get frames")
         self._tasks.append(asyncio.create_task(self._consume_state(state_q)))
         self._tasks.append(asyncio.create_task(self._consume_video(video_q)))
         await self._warmup_state()
+
+    def _discover_video_queue_ids(self, max_age_s: float = 180.0) -> list[str]:
+        """Find live `usbvideo/<hash>` queues by scanning the station data dir.
+
+        The queue id is `usbvideo/{md5(camera_unique_id)}`; we can't list queues over the protocol,
+        so we read the station's on-disk queue dirs (localhost). Prefers recently-written queues so
+        stale dirs from past sessions are ignored. Override the search root with STATION_DATA_DIR.
+        """
+        roots = [
+            os.environ.get("STATION_DATA_DIR", "").strip(),
+            os.path.join(self.norma_core_path, "..", "..", "station_data"),
+            os.path.join(self.norma_core_path, "..", "station_data"),
+            os.path.join(os.getcwd(), "station_data"),
+        ]
+        found: list[str] = []
+        for root in roots:
+            if not root or not os.path.isdir(root):
+                continue
+            for d in glob.glob(os.path.join(root, "*", "usbvideo", "*")):
+                name = os.path.basename(d)
+                if len(name) == 32 and all(c in "0123456789abcdef" for c in name) and os.path.isdir(d):
+                    found.append(d)
+            if found:
+                break
+        if not found:
+            return []
+
+        now = time.time()
+
+        def age(d: str) -> float:
+            times = [os.path.getmtime(d)]
+            for sub in ("wal", "store"):
+                p = os.path.join(d, sub)
+                if os.path.isdir(p):
+                    for f in os.listdir(p):
+                        try:
+                            times.append(os.path.getmtime(os.path.join(p, f)))
+                        except OSError:
+                            pass
+            return now - max(times)
+
+        live = [d for d in found if age(d) <= max_age_s]
+        use = live if live else found
+        return sorted({"usbvideo/" + os.path.basename(d) for d in use})
 
     async def _consume_state(self, q: asyncio.Queue) -> None:
         while True:
@@ -253,7 +310,17 @@ class LiveBackend(StationBackend):
                 data = env.get_frames().get_frames_data()
                 if not data:
                     continue
-                self._frames[key] = bytes(data[-1])  # newest frame in the pack (assumed JPEG)
+                # The C270 over usbip emits occasional corrupt JPEGs. Keep the newest STRUCTURALLY
+                # VALID frame (SOI..EOI markers); if the whole pack is bad, keep the last good one.
+                jpeg = None
+                for cand in reversed(data):
+                    b = bytes(cand)
+                    if len(b) > 4 and b[:2] == b"\xff\xd8" and b[-2:] == b"\xff\xd9":
+                        jpeg = b
+                        break
+                if jpeg is None:
+                    continue
+                self._frames[key] = jpeg
                 if key not in self._frame_order:
                     self._frame_order.append(key)
                     log.info("camera discovered: %s", key)
