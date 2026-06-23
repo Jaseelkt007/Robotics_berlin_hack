@@ -34,6 +34,19 @@ SmolVLA+IK plan is docs/10–11, kept for reference.)*
   <em>The setup: NormaCore arm + overhead/side cameras, the rig our agent perceives and controls.</em>
 </p>
 
+<p align="center">
+  🎥 <strong><a href="https://youtu.be/gKlwgUW2sTE">Watch the demo video</a></strong>
+</p>
+
+<!-- 🔴 LIVE DEMO: replace VIDEO_LINK_HERE below with the GitHub issue video link when ready -->
+<p align="center">
+  <a href="https://github.com/user-attachments/assets/444579d8-3de0-4854-8683-e14009f0f984">
+    <img src="./Images/inf.png" alt="Live demo preview — click to watch" width="70%">
+  </a>
+  <br>
+  <em>▶️ Live demo (click the preview) — <strong>video link coming soon</strong>.</em>
+</p>
+
 ## 🤗 Model & Dataset (Hugging Face)
 
 The fine-tuned SmolVLA checkpoint and the training dataset are hosted on the Hugging Face Hub:
