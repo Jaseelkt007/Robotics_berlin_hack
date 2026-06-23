@@ -28,13 +28,6 @@ SmolVLA+IK plan is docs/10–11, kept for reference.)*
 
 > One-liner: *Not a remote control — an assistant with eyes, judgment, and a conversation.*
 
-<p align="center">
-  <img src="./Images/f76795eb-af91-4796-b8ae-18eb59c312f2.png" alt="The robot station setup — arm + cameras on the table" width="80%">
-  <br>
-  <em>The setup: NormaCore arm + overhead/side cameras, the rig our agent perceives and controls.</em>
-</p>
-
-
 ## 🤗 Model & Dataset (Hugging Face)
 
 The fine-tuned SmolVLA checkpoint and the training dataset are hosted on the Hugging Face Hub:
@@ -194,12 +187,3 @@ git clone https://github.com/norma-core/norma-core.git
 ```
 Point the MCP server at it with `NORMA_CORE_PATH=/path/to/norma-core`. Everything we extracted from it
 is in `docs/05`, `docs/08`, `docs/09`.
-
-## 🙏 Acknowledgements
-
-Huge thanks to the **[NormaCore](https://normacore.dev/)** team for the hardware, the Station API, and
-on-site support during the hackathon. This project is built on top of their Physical Operations Platform.
-
-- **NormaCore** — Unified toolkit for physical system development & operations: https://normacore.dev/
-- **NormaCore source (GitHub):** https://github.com/norma-core/norma-core
-- Built at the **Robotics × AI Hackathon — Berlin**.
