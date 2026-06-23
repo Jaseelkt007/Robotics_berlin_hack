@@ -38,14 +38,14 @@ SmolVLA+IK plan is docs/10–11, kept for reference.)*
   🎥 <strong><a href="https://youtu.be/gKlwgUW2sTE">Watch the demo video</a></strong>
 </p>
 
-<!-- 🔴 LIVE DEMO: replace VIDEO_LINK_HERE below with the GitHub issue video link when ready -->
+<!-- 🔴 LIVE DEMO: GitHub renders this user-attachments URL as an inline video player -->
 <p align="center">
-  <a href="https://github.com/user-attachments/assets/444579d8-3de0-4854-8683-e14009f0f984">
-    <img src="./Images/inf.png" alt="Live demo preview — click to watch" width="70%">
-  </a>
-  <br>
-  <em>▶️ Live demo (click the preview) — <strong>video link coming soon</strong>.</em>
+  <video src="https://github.com/user-attachments/assets/444579d8-3de0-4854-8683-e14009f0f984" controls muted width="70%" poster="./Images/inf.png"></video>
 </p>
+
+https://github.com/user-attachments/assets/444579d8-3de0-4854-8683-e14009f0f984
+
+<p align="center"><em>▶️ Live demo — autonomous pick-and-place on hardware.</em></p>
 
 ## 🤗 Model & Dataset (Hugging Face)
 
