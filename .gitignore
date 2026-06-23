@@ -53,3 +53,7 @@ station_mcp/box_*.jpg
 station_mcp/look_*.jpg
 station_mcp/hover_check.jpg
 station_mcp/probe.jpg
+
+
+models/
+checkpoints/
