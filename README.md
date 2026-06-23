@@ -43,8 +43,6 @@ SmolVLA+IK plan is docs/10–11, kept for reference.)*
   <video src="https://github.com/user-attachments/assets/444579d8-3de0-4854-8683-e14009f0f984" controls muted width="70%" poster="./Images/inf.png"></video>
 </p>
 
-https://github.com/user-attachments/assets/444579d8-3de0-4854-8683-e14009f0f984
-
 <p align="center"><em>▶️ Live demo — autonomous pick-and-place on hardware.</em></p>
 
 ## 🤗 Model & Dataset (Hugging Face)
