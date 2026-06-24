@@ -20,7 +20,7 @@ decoupled from the robot's control loop so talking never slows the arm down.
 
 **What actually runs (the reliable track):** SmolVLA was blocked on a checkpoint, so we built a
 **SmolVLA-independent grid track** — Claude reads a target's **pixel** from the overhead camera and a
-**pre-taught pixel→joint grid** turns it into motion (no IK, no ArUco, no API key). First full
+**pre-taught pixel→joint grid** turns it into waypoints for robot motion (no IK, no ArUco, no API key). First full
 autonomous **pick-and-place succeeded on hardware (2026-06-21)**. As-built design:
 [`docs/13-grid-control-implemented.md`](./docs/13-grid-control-implemented.md). *(The original two-stage
 SmolVLA+IK plan is docs/10–11, kept for reference.)*
