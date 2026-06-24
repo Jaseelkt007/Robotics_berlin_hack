@@ -3,9 +3,7 @@
 **Track:** NormaCore — *"AI-Powered Robot Control: integrate the Station API into Codex or Claude so it
 can control the robot by looking through the cameras."*
 
-**What we're building:** a **voice- and chat-commanded assistive robot** — an **agent you talk to**
-that looks through the robot's cameras, works out the physical task, and **does it, correcting itself
-when it fails**. **Claude is the brain**, running on the **Claude Agent SDK**; NormaCore's Station
+**What we're building:** a **voice- and chat-commanded assistive robot** — an **agent that perceives its environment** through the robot's cameras, plans physical actions, and autonomously executes tasks while recovering from failures.**. **Claude is the brain**, running on the **Claude Agent SDK**; NormaCore's Station
 API is wrapped as an **MCP server** so the agent can actually drive the arm. The whole thing is a **full agentic pipeline** — perceive → decide → act → verify — not a
 scripted demo: give it a goal in plain language and it figures out the steps.
 
