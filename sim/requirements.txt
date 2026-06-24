@@ -1,0 +1,13 @@
+# Runtime deps for mujoco_eval.py on WSL/local.
+# We don't install torch via pip here — install it separately matching your CUDA
+# (or just `pip install torch` for CPU). See README.md.
+
+mujoco>=3.0
+numpy>=1.24
+pillow>=10
+safetensors>=0.4
+imageio[ffmpeg]>=2.34   # only needed for --video output
+transformers==5.3.0     # SmolVLM2 backbone — must match training
+huggingface_hub>=0.24
+num2words>=0.5          # used by the SmolVLM2 processor
+pyarrow>=16             # only needed if you want to load training parquets for sanity checks
