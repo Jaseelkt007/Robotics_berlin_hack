@@ -3,11 +3,8 @@
 **Track:** NormaCore — *"AI-Powered Robot Control: integrate the Station API into Codex or Claude so it
 can control the robot by looking through the cameras."*
 
-**What we're building:** a **voice- and chat-commanded assistive robot** — an **agent you talk to**
-that looks through the robot's cameras, works out the physical task, and **does it, correcting itself
-when it fails**. **Claude is the brain**, running on the **Claude Agent SDK** (cloud reasoning via a
-Claude subscription); NormaCore's Station API is wrapped as an **MCP server** so the agent can actually
-drive the arm. The whole thing is a **full agentic pipeline** — perceive → decide → act → verify — not a
+**What we're building:** a **voice- and chat-commanded assistive robot** — an **agent that perceives its environment** through the robot's cameras, plans physical actions, and autonomously executes tasks while recovering from failures.**. **Claude is the brain**, running on the **Claude Agent SDK**; NormaCore's Station
+API is wrapped as an **MCP server** so the agent can actually drive the arm. The whole thing is a **full agentic pipeline** — perceive → decide → act → verify — not a
 scripted demo: give it a goal in plain language and it figures out the steps.
 
 **What it can do today:** locate / track objects on the table, **pick up**, **place**, **stack** one
@@ -21,7 +18,7 @@ decoupled from the robot's control loop so talking never slows the arm down.
 
 **What actually runs (the reliable track):** SmolVLA was blocked on a checkpoint, so we built a
 **SmolVLA-independent grid track** — Claude reads a target's **pixel** from the overhead camera and a
-**pre-taught pixel→joint grid** turns it into motion (no IK, no ArUco, no API key). First full
+**pre-taught pixel→joint grid** turns it into waypoints for robot motion (no IK, no ArUco, no API key). First full
 autonomous **pick-and-place succeeded on hardware (2026-06-21)**. As-built design:
 [`docs/13-grid-control-implemented.md`](./docs/13-grid-control-implemented.md). *(The original two-stage
 SmolVLA+IK plan is docs/10–11, kept for reference.)*
@@ -75,10 +72,10 @@ plugged into your laptop.
 So: **calibration & training stay on the robot laptop**; everyone else points their MCP server at it.
 All on the **same Wi-Fi/LAN**, port **8888** open.
 
-> **Where does the "cloud" come in?** Only the **brain** (Claude) is cloud — via your Claude
-> subscription. The actual **motor commands run locally**: `agent_service`/Claude decides *what* to do,
+> **Where does the network call go?** Only the **brain** (Claude, via the **Claude Agent SDK**) runs
+> remotely. The actual **motor commands run locally**: `agent_service`/Claude decides *what* to do,
 > then calls the MCP tools, which send commands to the Station over **local/LAN TCP**. Motor bytes never
-> travel through the cloud.
+> leave the LAN.
 
 ---
 
@@ -89,7 +86,7 @@ Each component has its **own isolated environment** — set them up independentl
 | Component | Dir | Environment | Needs |
 |---|---|---|---|
 | **MCP server** (wraps the Station as tools) | `station_mcp/` | its own **Python venv** (`uv`) | `uv`; for LIVE mode also a cloned `norma-core` |
-| **Agent service** (always-on Claude brain for the web UI) | `agent_service/` | its own **Python venv** (`uv`) | `uv` **+ the `claude` CLI installed & logged in** (subscription auth) |
+| **Agent service** (always-on Claude brain for the web UI) | `agent_service/` | its own **Python venv** (`uv`) | `uv` **+ the `claude` CLI installed & logged in** |
 | **Web UI** (operator dashboard) | `web/` | **Node** (`npm`) | Node ≥ 22, `npm` |
 | **NormaCore source** (LIVE only) | `norma-core/` (cloned, not committed) | — | `git clone` next to this repo |
 
@@ -117,9 +114,9 @@ claude mcp add normacore-station -- uv run --directory $(pwd) python server.py
 
 ```bash
 # 0) one-time: make sure station_mcp is set up (Path A step 1) and you have the Claude CLI logged in
-claude login                 # subscription auth (NOT an API key)
+claude login                 # one-time login
 
-# 1) the always-on Claude brain (uses your subscription; refuses to start if ANTHROPIC_API_KEY is set)
+# 1) the always-on Claude brain (refuses to start if ANTHROPIC_API_KEY is set)
 cd agent_service
 uv venv && uv pip install -r requirements.txt
 unset ANTHROPIC_API_KEY
@@ -177,7 +174,7 @@ calibration in the web UI, run NormaCore's `station-viewer` and set `VITE_VIEWER
 - ✅ **MCP tools** — `look` (cleanest-of-burst), `move_to_pixel`, `nudge`, `grasp` (verify by close-gap),
   `release`/`deliver`/`home`, `drag` (slide-reposition), `stack_on` (place on top), plus `push`/`wave`.
   Calibrate with `station_mcp/calibrate.py`.
-- ✅ **Agent service (brain)** — always-on persistent **Claude Agent SDK** session, subscription auth,
+- ✅ **Agent service (brain)** — always-on persistent **Claude Agent SDK** session,
   loads the `robot-operator` + `box-stacker` skills + the MCP. **Web UI** with a "watch it think" feed
   and a **Stop** button to interrupt mid-task.
 - ✅ **Voice mode** — talk to the agent in the browser: Web Speech STT → Claude → a fast parallel
@@ -187,7 +184,7 @@ calibration in the web UI, run NormaCore's `station-viewer` and set `VITE_VIEWER
 
 ## Stack
 
-Claude (brain — Claude Code CLI **or** the `agent_service` **Claude Agent SDK**, subscription auth) ·
+Claude (brain — Claude Code CLI **or** the `agent_service` **Claude Agent SDK**) ·
 **Station-MCP server** (Python) · NormaCore Station + arm (robot laptop) ·
 **Web UI** (React + Vite + Tailwind v4 + Inter) with a **voice agent**: browser Web Speech STT →
 Claude → a parallel narrator (OpenAI fast model) → **ElevenLabs** streaming TTS, all browser-side and

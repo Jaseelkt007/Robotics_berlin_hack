@@ -4,13 +4,13 @@
 # Submit from the LOGIN node:   sbatch training/train_slurm.sh
 # (Edit the #SBATCH lines for YOUR cluster: partition / account / GPU name.)
 # =====================================================================
-#SBATCH --job-name=smolvla-cube
+#SBATCH --job-name=smolvla-smoke
 #SBATCH --partition=highperf
 #SBATCH --gres=gpu:rtx_a6000:1
 #SBATCH --cpus-per-task=12
 #SBATCH --mem=64G
-#SBATCH --time=08:00:00
-#SBATCH --output=/no_backups/s1492/smolvla-train/logs/smolvla-%j.log
+#SBATCH --time=00:30:00
+#SBATCH --output=/no_backups/s1492/smolvla-train/logs/smoke-%j.log
 
 set -eo pipefail
 
@@ -20,18 +20,16 @@ set -eo pipefail
 WORK="${WORK:-$HOME/smolvla-train}"
 NORMA="$WORK/norma-core"                              # training CODE (upstream)
 DATA="$WORK/Robotics_berlin_hack"                     # OUR repo (dataset + this script)
-OUT="$WORK/checkpoints/cube-8dim"                     # checkpoints land here
+OUT="$WORK/checkpoints/cube-8dim-smoke-sdpa"                     # checkpoints land here
 export HF_HOME="$WORK/hf-cache"                       # base model cache (shared login+compute)
 export UV_CACHE_DIR="$WORK/uv-cache"                  # keep uv cache off the quota-limited home
 export HF_HUB_OFFLINE=1                               # compute node has no internet — use cached models
-export WANDB_PROJECT="${WANDB_PROJECT:-smolvla-elrobot-cube}"
-export WANDB_ENTITY="${WANDB_ENTITY:-jaseelkt1-university-of-stuttgart}"
-export WANDB_NAME="cube-8dim-${SLURM_JOB_ID:-local}"
+export WANDB_PROJECT="smolvla-elrobot-cube"
+export WANDB_ENTITY="jaseelkt1-university-of-stuttgart"
+export WANDB_NAME="smoke-sdpa-${SLURM_JOB_ID:-local}"
+export SMOLVLA_ATTN_IMPL=sdpa
 export WANDB_DIR="$WORK/logs"
 export WANDB_MODE="${WANDB_MODE:-online}"             # highperf nodes have outbound net (Ctrl-V job confirms)
-export SMOLVLA_ATTN_IMPL="${SMOLVLA_ATTN_IMPL:-sdpa}"  # SDPA attention ~13% faster than eager, loss bit-identical (smoke 210867)
-export SMOLVLA_COMPILE="${SMOLVLA_COMPILE:-1}"         # torch.compile ~30% faster on top of SDPA, loss bit-identical (smoke 210869)
-export SMOLVLA_COMPILE_MODE="${SMOLVLA_COMPILE_MODE:-default}"
 mkdir -p "$WORK" "$OUT" "$HF_HOME" "$WORK/logs"
 
 # ---------------------------------------------------------------------
@@ -63,9 +61,9 @@ uv sync --offline || uv sync
 #    lr pairs with batch (NormaCore default lr 1e-4 @ batch 64).
 # ---------------------------------------------------------------------
 PYTHONUNBUFFERED=1 uv run python scripts/train.py \
-  --steps 15000 \
-  --save-every 2500 \
-  --decay-steps 15000 \
+  --steps 100 \
+  --save-every 100 \
+  --decay-steps 100 \
   --batch-size 48 \
   --num-workers 12 \
   --lr 1e-4 \
