@@ -140,6 +140,30 @@ browser's built-in Web Speech API (Chrome/Edge), so no key is needed just to *ta
 `station_mcp/.env`; see [`station_mcp/README.md`](./station_mcp/README.md). To embed live cameras +
 calibration in the web UI, run NormaCore's `station-viewer` and set `VITE_VIEWER_URL` in `web/.env`.
 
+## 🖥️ Web UI — the operator dashboard
+
+A clean, ElevenLabs-style dashboard where you command the robot in plain language and **watch it
+think** in real time. Built with React + TypeScript + Tailwind, it connects to the always-on Claude
+brain (`agent_service`).
+
+<!-- 📸 WEB UI SCREENSHOT -->
+<p align="center">
+  <img src="./Images/Web_UI.png" alt="Operator web dashboard — conversation feed, voice agent, and camera panel" width="85%">
+  <br>
+  <em>The operator dashboard: conversation, voice agent, and cameras &amp; calibration.</em>
+</p>
+
+**What's on screen:**
+
+- **Conversation / "watch it think"** — chat the agent and see it reason live: Claude's replies, its
+  thinking, and **robot tool calls** (`look`, `move_to_pixel`, `grasp`, …) with inline camera frames,
+  plus a **Stop** button to interrupt mid-task.
+- **Voice agent** — talk to the robot: an animated orb that shifts through listening → thinking →
+  speaking, a live transcript, and the robot's spoken replies (browser STT → Claude → ElevenLabs voice).
+- **Cameras & calibration** — live camera feed and calibration view via NormaCore's `station-viewer`.
+
+> Run it: `cd web && npm install && npm run dev`. See [`web/README.md`](./web/README.md).
+
 ## Repository structure
 
 ```
